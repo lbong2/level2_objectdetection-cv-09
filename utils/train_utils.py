@@ -386,8 +386,15 @@ def train_one_epoch(model, optimizer, data_loader, device, epoch, print_freq,
             train_loss.append(loss_value)
 
         optimizer.zero_grad()
-        losses.backward()
-        optimizer.step()
+        # Scales the loss, and calls backward() 
+        # to create scaled gradients 
+        scaler.scale(losses).backward()
+        # Unscales gradients and calls 
+        # or skips optimizer.step() 
+        scaler.step(optimizer)
+
+        # Updates the scale for next iteration 
+        scaler.update()
 
         if lr_scheduler is not None:
             lr_scheduler.step()
