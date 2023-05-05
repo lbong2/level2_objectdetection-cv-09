@@ -1,73 +1,132 @@
-import argparse
-import collections
+import os
+
 import torch
-import numpy as np
-import data_loader.data_loaders as module_data
-import model.loss as module_loss
-import model.metric as module_metric
-import model.model as module_arch
-from parse_config import ConfigParser
-from trainer import Trainer
-from utils import prepare_device
+from tensorboardX import SummaryWriter
+
+from config.train_config import cfg
+from dataloader.coco_dataset import coco
+from utils.evaluate_utils import evaluate
+from utils.im_utils import Compose, ToTensor, RandomHorizontalFlip
+from utils.plot_utils import plot_loss_and_lr, plot_map
+from utils.train_utils import train_one_epoch, write_tb, create_model
 
 
-# fix random seeds for reproducibility
-SEED = 123
-torch.manual_seed(SEED)
-torch.backends.cudnn.deterministic = True
-torch.backends.cudnn.benchmark = False
-np.random.seed(SEED)
+def main():
+    device = torch.device(cfg.device_name)
+    print("Using {} device training.".format(device.type))
 
-def main(config):
-    logger = config.get_logger('train')
+    if not os.path.exists(cfg.model_save_dir):
+        os.makedirs(cfg.model_save_dir)
 
-    # setup data_loader instances
-    data_loader = config.init_obj('data_loader', module_data)
-    valid_data_loader = data_loader.split_validation()
+    # tensorboard writer
+    writer = SummaryWriter(os.path.join(cfg.model_save_dir, 'epoch_log'))
 
-    # build model architecture, then print to console
-    model = config.init_obj('arch', module_arch)
-    logger.info(model)
+    data_transform = {
+        "train": Compose([ToTensor(), RandomHorizontalFlip(cfg.train_horizon_flip_prob)]),
+        "val": Compose([ToTensor()])
+    }
 
-    # prepare for (multi-device) GPU training
-    device, device_ids = prepare_device(config['n_gpu'])
-    model = model.to(device)
-    if len(device_ids) > 1:
-        model = torch.nn.DataParallel(model, device_ids=device_ids)
+    if not os.path.exists(cfg.data_root_dir):
+        raise FileNotFoundError("dataset root dir not exist!")
 
-    # get function handles of loss and metrics
-    criterion = getattr(module_loss, config['loss'])
-    metrics = [getattr(module_metric, met) for met in config['metrics']]
+    # load train data set
+    train_data_set = coco(cfg.data_root_dir, 'train', '2017', data_transform["train"])
+    batch_size = cfg.batch_size
+    nw = min([os.cpu_count(), batch_size if batch_size > 1 else 0, 8])
+    print('Using {} dataloader workers'.format(nw))
+    train_data_loader = torch.utils.data.DataLoader(train_data_set,
+                                                    batch_size=batch_size,
+                                                    shuffle=True,
+                                                    num_workers=nw,
+                                                    collate_fn=train_data_set.collate_fn)
 
-    # build optimizer, learning rate scheduler. delete every lines containing lr_scheduler for disabling scheduler
-    trainable_params = filter(lambda p: p.requires_grad, model.parameters())
-    optimizer = config.init_obj('optimizer', torch.optim, trainable_params)
-    lr_scheduler = config.init_obj('lr_scheduler', torch.optim.lr_scheduler, optimizer)
+    # load validation data set
+    val_data_set = coco(cfg.data_root_dir, 'val', '2017', data_transform["val"])
+    val_data_set_loader = torch.utils.data.DataLoader(val_data_set,
+                                                      batch_size=batch_size,
+                                                      shuffle=False,
+                                                      num_workers=nw,
+                                                      collate_fn=train_data_set.collate_fn)
 
-    trainer = Trainer(model, criterion, metrics, optimizer,
-                      config=config,
-                      device=device,
-                      data_loader=data_loader,
-                      valid_data_loader=valid_data_loader,
-                      lr_scheduler=lr_scheduler)
+    # create model num_classes equal background + 80 classes
+    model = create_model(num_classes=cfg.num_class)
 
-    trainer.train()
+    model.to(device)
+
+    # define optimizer
+    params = [p for p in model.parameters() if p.requires_grad]
+    optimizer = torch.optim.SGD(params, lr=cfg.lr,
+                                momentum=cfg.momentum, weight_decay=cfg.weight_decay)
+
+    # learning rate scheduler
+    lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer,
+                                                   step_size=cfg.lr_dec_step_size,
+                                                   gamma=cfg.lr_gamma)
+
+    # train from pretrained weights
+    if cfg.resume != "":
+        checkpoint = torch.load(cfg.resume)
+        model.load_state_dict(checkpoint['model'])
+        optimizer.load_state_dict(checkpoint['optimizer'])
+        lr_scheduler.load_state_dict(checkpoint['lr_scheduler'])
+        cfg.start_epoch = checkpoint['epoch'] + 1
+        print("the training process from epoch{}...".format(cfg.start_epoch))
+
+    train_loss = []
+    learning_rate = []
+    train_mAP_list = []
+    val_mAP = []
+
+    best_mAP = 0
+    for epoch in range(cfg.start_epoch, cfg.num_epochs):
+        loss_dict, total_loss = train_one_epoch(model, optimizer, train_data_loader,
+                                                device, epoch, train_loss=train_loss, train_lr=learning_rate,
+                                                print_freq=50, warmup=False)
+
+        lr_scheduler.step()
+
+        print("------>Starting training data valid")
+        _, train_mAP = evaluate(model, train_data_loader, device=device, mAP_list=train_mAP_list)
+
+        print("------>Starting validation data valid")
+        _, mAP = evaluate(model, val_data_set_loader, device=device, mAP_list=val_mAP)
+        print('training mAp is {}'.format(train_mAP))
+        print('validation mAp is {}'.format(mAP))
+        print('best mAp is {}'.format(best_mAP))
+
+        board_info = {'lr': optimizer.param_groups[0]['lr'],
+                      'train_mAP': train_mAP,
+                      'val_mAP': mAP}
+
+        for k, v in loss_dict.items():
+            board_info[k] = v.item()
+        board_info['total loss'] = total_loss.item()
+        write_tb(writer, epoch, board_info)
+
+        if mAP > best_mAP:
+            best_mAP = mAP
+            # save weights
+            save_files = {
+                'model': model.state_dict(),
+                'optimizer': optimizer.state_dict(),
+                'lr_scheduler': lr_scheduler.state_dict(),
+                'epoch': epoch}
+            model_save_dir = cfg.model_save_dir
+            if not os.path.exists(model_save_dir):
+                os.makedirs(model_save_dir)
+            torch.save(save_files,
+                       os.path.join(model_save_dir, "{}-model-{}-mAp-{}.pth".format(cfg.backbone, epoch, mAP)))
+    writer.close()
+    # plot loss and lr curve
+    if len(train_loss) != 0 and len(learning_rate) != 0:
+        plot_loss_and_lr(train_loss, learning_rate, cfg.model_save_dir)
+
+    # plot mAP curve
+    if len(val_mAP) != 0:
+        plot_map(val_mAP, cfg.model_save_dir)
 
 
-if __name__ == '__main__':
-    args = argparse.ArgumentParser(description='PyTorch Template')
-    args.add_argument('-c', '--config', default=None, type=str,
-                      help='config file path (default: None)')
-    args.add_argument('-r', '--resume', default=None, type=str,
-                      help='path to latest checkpoint (default: None)')
-    args.add_argument('-d', '--device', default=None, type=str,
-                      help='indices of GPUs to enable (default: all)')
-
-    # custom cli options to modify configuration from default values given in json file.
-    CustomArgs = collections.namedtuple('CustomArgs', 'flags type target')
-    options = [
-        CustomArgs(['--lr', '--learning_rate'], type=float, target='optimizer;args;lr'),
-        CustomArgs(['--bs', '--batch_size'], type=int, target='data_loader;args;batch_size')
-    ]
-    config = ConfigParser.from_args(args, options)
-    main(config)
+if __name__ == "__main__":
+    version = torch.version.__version__[:5]
+    print('torch version is {}'.format(version))
+    main()
