@@ -21,13 +21,6 @@ def main(prompt_args):
     if not os.path.exists(cfg.model_save_dir):
         os.makedirs(cfg.model_save_dir)
 
-    # tensorboard writer
-    # writer = SummaryWriter(os.path.join(cfg.model_save_dir, 'epoch_log'))
-
-    # wandb config save - by kyungbong
-    if prompt_args.wandb:
-        wandb.config.update(cfg)
-
     data_transform = {
         "train": Compose([ToTensor(), RandomHorizontalFlip(cfg.train_horizon_flip_prob)]),
         "val": Compose([ToTensor()])
@@ -108,9 +101,9 @@ def main(prompt_args):
         for k, v in loss_dict.items():
             board_info[k] = v.item()
         board_info['total loss'] = total_loss.item()
-        # write_tb(writer, epoch, board_info)
+
         # wandb log - by kyungbong
-        if prompt_args.wandb:
+        if prompt_args.project:
             wandb.log(board_info, step=epoch)
             wandb.log(loss_dict, step=epoch)
 
@@ -128,37 +121,39 @@ def main(prompt_args):
             torch.save(save_files,
                        os.path.join(model_save_dir, "{}-model-{}-mAp-{}.pth".format(cfg.backbone, epoch, mAP)))
 
-    # writer.close()
-
     # plot loss and lr curve
-    # wandb plot image log - by kyungbong
+    
     if len(train_loss) != 0 and len(learning_rate) != 0:
         loss_lrCurve_plot = plot_loss_and_lr(train_loss, learning_rate, cfg.model_save_dir)
-        if prompt_args.wandb:
-            wandb.log({
-                "loss_lrCurve": wandb.Image(loss_lrCurve_plot)
-            })
-
+    
     # plot mAP curve
     if len(val_mAP) != 0:
         mAPCurve_plot = plot_map(val_mAP, cfg.model_save_dir)
-        if prompt_args.wandb:
-            wandb.log({
-                "mAPCurve": wandb.Image(mAPCurve_plot)
-            })
-    if prompt_args.wandb:
-        wandb.finish()
+        
+    # wandb plot image log - by kyungbong
+    if prompt_args.project:
+        wandb.log({
+            "mAPCurve": wandb.Image(mAPCurve_plot),
+            "loss_lrCurve": wandb.Image(loss_lrCurve_plot)
+        })
+        wandb.config.update(cfg)
+        wandb.finish()     
 
 if __name__ == "__main__":
+    # args parser - by kyungbong
     parser = argparse.ArgumentParser()
-    parser.add_argument("--wandb", type=boolean, default=False, help="wandb on/off 기능 (default: False)")
+    parser.add_argument("--project", type=str, default="", help="wandb에 업로드 될 프로젝트 이름 (default: Faster R-CNN)")
+    parser.add_argument("--name", type=str, default="backbone_(manipulated variable)", help="wandb 프로젝트에 업로드 될 실험 이름 (default: backbone_(manipulated variable))")
     prompt_args = parser.parse_args()
     
-    if prompt_args.wandb:
+    if prompt_args.project:
         wandb.init(
-            project="Faster R-CNN 0.0.1v",
+            project=prompt_args.project,
             notes=input("간단한 개요를 입력해 주세요: ")
         )
+        wandb.run.name = prompt_args.name
+        wandb.run.save()
+
     version = torch.version.__version__[:5]
     print('torch version is {}'.format(version))
     main(prompt_args=prompt_args)
