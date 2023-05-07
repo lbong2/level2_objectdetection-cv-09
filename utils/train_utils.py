@@ -355,6 +355,8 @@ def train_one_epoch(model, optimizer, data_loader, device, epoch, print_freq,
                     train_loss=None, train_lr=None, warmup=False):
     global loss_dict, losses
     model.train()
+
+    scaler = torch.cuda.amp.GradScaler()
     metric_logger = MetricLogger(delimiter="  ")
     metric_logger.add_meter('lr', SmoothedValue(window_size=1, fmt='{value:.6f}'))
     header = 'Epoch: [{}]'.format(epoch)
@@ -370,9 +372,10 @@ def train_one_epoch(model, optimizer, data_loader, device, epoch, print_freq,
         images = list(image.to(device) for image in images)
         targets = [{k: v.to(device) for k, v in t.items()} for t in targets]
 
-        loss_dict = model(images, targets)
-
-        losses = sum(loss for loss in loss_dict.values())
+        with torch.cuda.amp.autocast():
+            # Casts operations to mixed precision 
+            loss_dict = model(images, targets)
+            losses = sum(loss for loss in loss_dict.values())
 
         # reduce losses over all GPUs for logging purpose
         loss_dict_reduced = reduce_dict(loss_dict)
@@ -383,8 +386,15 @@ def train_one_epoch(model, optimizer, data_loader, device, epoch, print_freq,
             train_loss.append(loss_value)
 
         optimizer.zero_grad()
-        losses.backward()
-        optimizer.step()
+        # Scales the loss, and calls backward() 
+        # to create scaled gradients 
+        scaler.scale(losses).backward()
+        # Unscales gradients and calls 
+        # or skips optimizer.step() 
+        scaler.step(optimizer)
+
+        # Updates the scale for next iteration 
+        scaler.update()
 
         if lr_scheduler is not None:
             lr_scheduler.step()

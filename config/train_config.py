@@ -42,11 +42,11 @@ class Config:
     box_positive_fraction = 0.25
     bbox_reg_weights = None
 
-    device_name = 'cuda:7'
+    device_name = 'cuda:0'
 
     resume = ''  # pretrained_weights
     start_epoch = 0  # start epoch
-    num_epochs = 5000  # train epochs
+    num_epochs = 1  # train epochs
 
     # learning rate parameters
     lr = 5e-3
@@ -59,7 +59,7 @@ class Config:
 
     batch_size = 6
 
-    num_class = 80 + 1  # foreground + 1 background
+    num_class = 10 + 1  # foreground + 1 background
     data_root_dir = " "
     model_save_dir = " "
 
