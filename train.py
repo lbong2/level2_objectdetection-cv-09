@@ -1,7 +1,8 @@
 import os
 
 import torch
-from tensorboardX import SummaryWriter
+#from tensorboardX import SummaryWriter
+import wandb
 
 from config.train_config import cfg
 from dataloader.coco_dataset import coco
@@ -10,16 +11,15 @@ from utils.im_utils import Compose, ToTensor, RandomHorizontalFlip
 from utils.plot_utils import plot_loss_and_lr, plot_map
 from utils.train_utils import train_one_epoch, write_tb, create_model
 
+import argparse
+import matplotlib.pyplot as plt
 
-def main():
+def main(prompt_args):
     device = torch.device(cfg.device_name)
     print("Using {} device training.".format(device.type))
 
     if not os.path.exists(cfg.model_save_dir):
         os.makedirs(cfg.model_save_dir)
-
-    # tensorboard writer
-    writer = SummaryWriter(os.path.join(cfg.model_save_dir, 'epoch_log'))
 
     data_transform = {
         "train": Compose([ToTensor(), RandomHorizontalFlip(cfg.train_horizon_flip_prob)]),
@@ -101,7 +101,11 @@ def main():
         for k, v in loss_dict.items():
             board_info[k] = v.item()
         board_info['total loss'] = total_loss.item()
-        write_tb(writer, epoch, board_info)
+
+        # wandb log - by kyungbong
+        if prompt_args.project:
+            wandb.log(board_info, step=epoch)
+            wandb.log(loss_dict, step=epoch)
 
         if mAP > best_mAP:
             best_mAP = mAP
@@ -116,17 +120,40 @@ def main():
                 os.makedirs(model_save_dir)
             torch.save(save_files,
                        os.path.join(model_save_dir, "{}-model-{}-mAp-{}.pth".format(cfg.backbone, epoch, mAP)))
-    writer.close()
-    # plot loss and lr curve
-    if len(train_loss) != 0 and len(learning_rate) != 0:
-        plot_loss_and_lr(train_loss, learning_rate, cfg.model_save_dir)
 
+    # plot loss and lr curve
+    
+    if len(train_loss) != 0 and len(learning_rate) != 0:
+        loss_lrCurve_plot = plot_loss_and_lr(train_loss, learning_rate, cfg.model_save_dir)
+    
     # plot mAP curve
     if len(val_mAP) != 0:
-        plot_map(val_mAP, cfg.model_save_dir)
-
+        mAPCurve_plot = plot_map(val_mAP, cfg.model_save_dir)
+        
+    # wandb plot image log - by kyungbong
+    if prompt_args.project:
+        wandb.log({
+            "mAPCurve": wandb.Image(mAPCurve_plot),
+            "loss_lrCurve": wandb.Image(loss_lrCurve_plot)
+        })
+        wandb.config.update(cfg)
+        wandb.finish()     
 
 if __name__ == "__main__":
+    # args parser - by kyungbong
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--project", type=str, default="", help="wandb에 업로드 될 프로젝트 이름 (default: Faster R-CNN)")
+    parser.add_argument("--name", type=str, default="backbone_(manipulated variable)", help="wandb 프로젝트에 업로드 될 실험 이름 (default: backbone_(manipulated variable))")
+    prompt_args = parser.parse_args()
+    
+    if prompt_args.project:
+        wandb.init(
+            project=prompt_args.project,
+            notes=input("간단한 개요를 입력해 주세요: ")
+        )
+        wandb.run.name = prompt_args.name
+        wandb.run.save()
+
     version = torch.version.__version__[:5]
     print('torch version is {}'.format(version))
-    main()
+    main(prompt_args=prompt_args)
