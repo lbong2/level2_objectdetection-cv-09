@@ -60,7 +60,7 @@ class Config:
     batch_size = 6
 
     num_class = 10 + 1  # foreground + 1 background
-    data_root_dir = " "
+    data_root_dir = "/opt/ml/dataset"
     model_save_dir = " "
 
 
