@@ -61,7 +61,7 @@ class Config:
 
     num_class = 10 + 1  # foreground + 1 background
     data_root_dir = "/opt/ml/dataset"
-    model_save_dir = " "
+    model_save_dir = "test"
 
 
 cfg = Config()
