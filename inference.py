@@ -11,11 +11,12 @@ import torch
 # faster rcnn model이 포함된 library
 import torchvision
 
-from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
-
 from torch.utils.data import DataLoader, Dataset
 import pandas as pd
 from tqdm import tqdm
+
+from utils.train_utils import create_model
+from config.test_config import test_cfg
 
 class CustomDataset(Dataset):
     '''
@@ -70,13 +71,11 @@ def inference_fn(test_data_loader, model, device):
     return outputs
 
 def main():
-    annotation = '../../dataset/test.json' # annotation 경로
-    data_dir = '../../dataset' # dataset 경로
+    annotation = '../dataset/test.json' # annotation 경로
+    data_dir = '../dataset' # dataset 경로
     test_dataset = CustomDataset(annotation, data_dir)
     score_threshold = 0.05
-    check_point = './checkpoints/faster_rcnn_torchvision_checkpoints.pth' # 체크포인트 경로
-    
-
+ 
     test_data_loader = DataLoader(
         test_dataset,
         batch_size=8,
@@ -87,24 +86,23 @@ def main():
     print(device)
     
     # torchvision model 불러오기
-    model = torchvision.models.detection.fasterrcnn_resnet50_fpn(pretrained=True)
-    num_classes = 11  # 10 class + background
-    # get number of input features for the classifier
-    in_features = model.roi_heads.box_predictor.cls_score.in_features
-    model.roi_heads.box_predictor = FastRCNNPredictor(in_features, num_classes)
-    model.to(device)
-    model.load_state_dict(torch.load(check_point))
+    model = create_model(num_classes=test_cfg.num_classes)
+    model.cuda()
+
+    weights = test_cfg.model_weights
+    checkpoint = torch.load(weights, map_location='cpu')
+    model.load_state_dict(checkpoint['model'])
+    
     model.eval()
     
     outputs = inference_fn(test_data_loader, model, device)
     prediction_strings = []
     file_names = []
-    coco = COCO(annotation)
 
     # submission 파일 생성
     for i, output in enumerate(outputs):
         prediction_string = ''
-        image_info = coco.loadImgs(coco.getImgIds(imgIds=i))[0]
+        image_info = test_dataset.coco.loadImgs(test_dataset.coco.getImgIds(imgIds=i))[0]
         for box, score, label in zip(output['boxes'], output['scores'], output['labels']):
             if score > score_threshold: 
                 # label[1~10] -> label[0~9]
@@ -117,3 +115,6 @@ def main():
     submission['image_id'] = file_names
     submission.to_csv('./faster_rcnn_torchvision_submission.csv', index=None)
     print(submission.head())
+
+if __name__ == "__main__":
+    main()
