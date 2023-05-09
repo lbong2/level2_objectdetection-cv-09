@@ -5,7 +5,7 @@ import torch
 import wandb
 
 from config.train_config import cfg
-from dataloader.dataset import CustomDataset, split_train_valid
+from dataloader.dataset import CustomDataset, split_train_valid, get_all_annotation, get_json_data
 from utils.evaluate_utils import evaluate
 from utils.im_utils import Compose, ToTensor, RandomHorizontalFlip
 from utils.plot_utils import plot_loss_and_lr, plot_map
@@ -28,11 +28,14 @@ def main(prompt_args):
 
     if not os.path.exists(cfg.data_root_dir):
         raise FileNotFoundError("dataset root dir not exist!")
+    json_data = get_json_data(cfg.data_root_dir)
+    
+    json_anno = get_all_annotation(json_data)
 
-    train_info, val_info = split_train_valid(cfg.data_root_dir)
+    train_info, val_info = split_train_valid(cfg.data_root_dir, json_data)
 
     # load train data set
-    train_data_set = CustomDataset(train_info,data_transform['train'])
+    train_data_set = CustomDataset(train_info, json_anno, data_transform['train'])
     batch_size = cfg.batch_size
     nw = min([os.cpu_count(), batch_size if batch_size > 1 else 0, 8])
     print('Using {} dataloader workers'.format(nw))
@@ -43,7 +46,7 @@ def main(prompt_args):
                                                     collate_fn=train_data_set.collate_fn)
 
     # load validation data set
-    val_data_set = CustomDataset(val_info,data_transform['val'])
+    val_data_set = CustomDataset(val_info, json_anno, data_transform['val'])
     val_data_set_loader = torch.utils.data.DataLoader(val_data_set,
                                                       batch_size=batch_size,
                                                       shuffle=False,
