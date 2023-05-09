@@ -35,7 +35,7 @@ def get_all_annotation(json_data):
     """
     anno = defaultdict(list)
     for i in json_data['annotations']:
-        anno[i['image_id']].append(i)
+        anno[str(i['image_id'])].append(i)
     
     return anno
 
