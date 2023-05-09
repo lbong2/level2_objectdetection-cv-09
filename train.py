@@ -120,7 +120,8 @@ def main(prompt_args):
                 'optimizer': optimizer.state_dict(),
                 'lr_scheduler': lr_scheduler.state_dict(),
                 'epoch': epoch}
-            model_save_dir = cfg.model_save_dir
+            model_save_dir = f"save/{prompt_args.name}"
+            cfg.model_save_dir = model_save_dir
             if not os.path.exists(model_save_dir):
                 os.makedirs(model_save_dir)
             torch.save(save_files,
@@ -129,11 +130,11 @@ def main(prompt_args):
     # plot loss and lr curve
     
     if len(train_loss) != 0 and len(learning_rate) != 0:
-        loss_lrCurve_plot = plot_loss_and_lr(train_loss, learning_rate, cfg.model_save_dir)
+        loss_lrCurve_plot = plot_loss_and_lr(train_loss, learning_rate, model_save_dir)
     
     # plot mAP curve
     if len(val_mAP) != 0:
-        mAPCurve_plot = plot_map(val_mAP, cfg.model_save_dir)
+        mAPCurve_plot = plot_map(val_mAP, model_save_dir)
         
     # wandb plot image log - by kyungbong
     if prompt_args.project:
