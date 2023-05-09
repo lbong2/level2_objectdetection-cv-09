@@ -89,13 +89,6 @@ class CustomDataset(Dataset):
         self.all_annotation = json_anno
         self.width = 1024
         self.height = 1024
-    
-    def _get_annotation(self):
-        anno = [[] for _ in range(len(self.image_paths))]
-        for i in self.json_data['annotations']:
-            anno[str(i['image_id'])].append(i)
-        return anno
-
 
     def __len__(self):
         return len(self.image_paths)
