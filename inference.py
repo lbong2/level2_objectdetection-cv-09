@@ -89,7 +89,7 @@ def main():
     model = create_model(num_classes=test_cfg.num_classes)
     model.cuda()
 
-    weights = test_cfg.model_weights
+    weights = os.path.join(test_cfg.model_weights, [file for file in os.listdir(test_cfg.model_weights) if file.endswith(".pth")][0])
     checkpoint = torch.load(weights, map_location='cpu')
     model.load_state_dict(checkpoint['model'])
     
@@ -110,10 +110,15 @@ def main():
                     box[1]) + ' ' + str(box[2]) + ' ' + str(box[3]) + ' '
         prediction_strings.append(prediction_string)
         file_names.append(image_info['file_name'])
+        
+    model_save_dir = f"result/{test_cfg.name}"
+    if not os.path.exists(model_save_dir):
+        os.makedirs(model_save_dir)
+
     submission = pd.DataFrame()
     submission['PredictionString'] = prediction_strings
     submission['image_id'] = file_names
-    submission.to_csv('./faster_rcnn_torchvision_submission.csv', index=None)
+    submission.to_csv(f'{model_save_dir}/submission.csv', index=None)
     print(submission.head())
 
 if __name__ == "__main__":
