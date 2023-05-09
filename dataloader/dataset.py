@@ -53,7 +53,6 @@ def split_train_valid(root_dir, json_data, val_ratio=0.2):
     """
     
     image_info = np.array([[i['id'], os.path.join(root_dir,i['file_name']) ] for i in json_data['images']])
-
     # validation set legnth
     length = int(len(image_info))
     split_length = int(val_ratio * length)
@@ -65,7 +64,6 @@ def split_train_valid(root_dir, json_data, val_ratio=0.2):
     # split info
     train_info = image_info[:length-split_length]
     val_info = image_info[length-split_length:]
-
     return train_info, val_info
 
 
@@ -86,10 +84,8 @@ class CustomDataset(Dataset):
         self._transforms = transforms
         
         self.num_classes = len(self.classes)
-
-        self.image_ids = image_info[0]
-        self.image_paths = image_info[1]
-
+        self.image_ids = image_info[:,0]
+        self.image_paths = image_info[:,1]
         self.all_annotation = json_anno
         self.width = 1024
         self.height = 1024
@@ -99,13 +95,14 @@ class CustomDataset(Dataset):
     
     def __getitem__(self,idx):
         img_path = self.image_paths[idx]
+        # print(img_path)
         img = Image.open(img_path)
         id = self.image_ids[idx]
 
         w = self.width
         h = self.height
         objs = []
-        for obj in self.annotation[id]:
+        for obj in self.all_annotation[id]:
             x1 = np.max((0, obj['bbox'][0]))
             y1 = np.max((0, obj['bbox'][1]))
             x2 = np.min((w - 1, x1 + np.max((0, obj['bbox'][2] - 1))))
