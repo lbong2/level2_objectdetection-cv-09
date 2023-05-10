@@ -125,7 +125,7 @@ def main(prompt_args):
             if not os.path.exists(model_save_dir):
                 os.makedirs(model_save_dir)
             torch.save(save_files,
-                       os.path.join(model_save_dir, "{}-model-{}-mAp-{}.pth".format(cfg.backbone, epoch, mAP)))
+                       os.path.join(model_save_dir, "best_model.pth".format(cfg.backbone, epoch, mAP)))
 
     # plot loss and lr curve
     
