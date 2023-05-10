@@ -1,81 +1,59 @@
-import argparse
+import os
+
+import matplotlib.pyplot as plt
 import torch
-from tqdm import tqdm
-import data_loader.data_loaders as module_data
-import model.loss as module_loss
-import model.metric as module_metric
-import model.model as module_arch
-from parse_config import ConfigParser
+from PIL import Image
+from torchvision import transforms
+
+from config.test_config import test_cfg
+from dataloader.coco_dataset import coco
+from utils.draw_box_utils import draw_box
+from utils.train_utils import create_model
 
 
-def main(config):
-    logger = config.get_logger('test')
+def test():
+    model = create_model(num_classes=test_cfg.num_classes)
 
-    # setup data_loader instances
-    data_loader = getattr(module_data, config['data_loader']['type'])(
-        config['data_loader']['args']['data_dir'],
-        batch_size=512,
-        shuffle=False,
-        validation_split=0.0,
-        training=False,
-        num_workers=2
-    )
+    model.cuda()
+    weights = test_cfg.model_weights
 
-    # build model architecture
-    model = config.init_obj('arch', module_arch)
-    logger.info(model)
+    checkpoint = torch.load(weights, map_location='cpu')
+    model.load_state_dict(checkpoint['model'])
 
-    # get function handles of loss and metrics
-    loss_fn = getattr(module_loss, config['loss'])
-    metric_fns = [getattr(module_metric, met) for met in config['metrics']]
+    # read class_indict
+    data_transform = transforms.Compose([transforms.ToTensor()])
+    test_data_set = coco(test_cfg.data_root_dir, 'test', '2017', data_transform)
+    category_index = test_data_set.class_to_coco_cat_id
 
-    logger.info('Loading checkpoint: {} ...'.format(config.resume))
-    checkpoint = torch.load(config.resume)
-    state_dict = checkpoint['state_dict']
-    if config['n_gpu'] > 1:
-        model = torch.nn.DataParallel(model)
-    model.load_state_dict(state_dict)
+    index_category = dict(zip(category_index.values(), category_index.keys()))
 
-    # prepare model for testing
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    model = model.to(device)
+    original_img = Image.open(test_cfg.image_path)
+    img = data_transform(original_img)
+    img = torch.unsqueeze(img, dim=0)
+
     model.eval()
-
-    total_loss = 0.0
-    total_metrics = torch.zeros(len(metric_fns))
-
     with torch.no_grad():
-        for i, (data, target) in enumerate(tqdm(data_loader)):
-            data, target = data.to(device), target.to(device)
-            output = model(data)
+        predictions = model(img.cuda())[0]
+        predict_boxes = predictions["boxes"].to("cpu").numpy()
+        predict_classes = predictions["labels"].to("cpu").numpy()
+        predict_scores = predictions["scores"].to("cpu").numpy()
 
-            #
-            # save sample images, or do something with output here
-            #
+        if len(predict_boxes) == 0:
+            print("No target detected!")
 
-            # computing loss, metrics on test set
-            loss = loss_fn(output, target)
-            batch_size = data.shape[0]
-            total_loss += loss.item() * batch_size
-            for i, metric in enumerate(metric_fns):
-                total_metrics[i] += metric(output, target) * batch_size
-
-    n_samples = len(data_loader.sampler)
-    log = {'loss': total_loss / n_samples}
-    log.update({
-        met.__name__: total_metrics[i].item() / n_samples for i, met in enumerate(metric_fns)
-    })
-    logger.info(log)
+        draw_box(original_img,
+                 predict_boxes,
+                 predict_classes,
+                 predict_scores,
+                 index_category,
+                 thresh=0.3,
+                 line_thickness=3)
+        plt.imshow(original_img)
+        plt.show()
 
 
-if __name__ == '__main__':
-    args = argparse.ArgumentParser(description='PyTorch Template')
-    args.add_argument('-c', '--config', default=None, type=str,
-                      help='config file path (default: None)')
-    args.add_argument('-r', '--resume', default=None, type=str,
-                      help='path to latest checkpoint (default: None)')
-    args.add_argument('-d', '--device', default=None, type=str,
-                      help='indices of GPUs to enable (default: all)')
-
-    config = ConfigParser.from_args(args)
-    main(config)
+if __name__ == "__main__":
+    version = torch.version.__version__[:5]
+    print('torch version is {}'.format(version))
+    os.environ["CUDA_VISIBLE_DEVICES"] = test_cfg.gpu_id
+    test()
