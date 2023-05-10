@@ -6,6 +6,9 @@ save/
 result/
 wandb/
 pretrained/
+
+=======
+
 # C extensions
 *.so
 
