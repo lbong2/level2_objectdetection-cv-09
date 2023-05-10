@@ -26,7 +26,7 @@ def plot_loss_and_lr(train_loss, learning_rate, save_dir):
         fig.savefig(os.path.join(save_dir, 'loss_and_lr.png'))
         plt.close()
         print("successful save loss curve! ")
-        return plt
+
     except Exception as e:
         print(e)
 
@@ -43,6 +43,6 @@ def plot_map(mAP, save_dir):
         plt.savefig(os.path.join(save_dir, 'mAP.png'))
         plt.close()
         print("successful save mAP curve!")
-        return plt 
+
     except Exception as e:
         print(e)

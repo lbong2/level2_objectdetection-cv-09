@@ -4,7 +4,7 @@ import torch
 #from tensorboardX import SummaryWriter
 import wandb
 
-from config.train_config import cfg
+from config.train_config import cfg, Config
 from dataloader.dataset import CustomDataset, split_train_valid, get_all_annotation, get_json_data
 from utils.evaluate_utils import evaluate
 from utils.im_utils import Compose, ToTensor, RandomHorizontalFlip
@@ -130,19 +130,19 @@ def main(prompt_args):
     # plot loss and lr curve
     
     if len(train_loss) != 0 and len(learning_rate) != 0:
-        loss_lrCurve_plot = plot_loss_and_lr(train_loss, learning_rate, model_save_dir)
+        plot_loss_and_lr(train_loss, learning_rate, model_save_dir)
     
     # plot mAP curve
     if len(val_mAP) != 0:
-        mAPCurve_plot = plot_map(val_mAP, model_save_dir)
+        plot_map(val_mAP, model_save_dir)
         
     # wandb plot image log - by kyungbong
     if prompt_args.project:
         wandb.log({
-            "mAPCurve": wandb.Image(mAPCurve_plot),
-            "loss_lrCurve": wandb.Image(loss_lrCurve_plot)
+            "mAPCurve": wandb.Image(plt.imread(os.path.join(model_save_dir, "mAP.png"))),
+            "loss_lrCurve": wandb.Image(plt.imread(os.path.join(model_save_dir, "loss_and_lr.png")))
         })
-        wandb.config.update(cfg)
+        wandb.config.update({k:v for k, v in Config.__dict__.items() if not k.startswith("__") and not callable(v)})
         wandb.finish()     
 
 if __name__ == "__main__":
@@ -151,11 +151,12 @@ if __name__ == "__main__":
     parser.add_argument("--project", type=str, default="", help="wandb에 업로드 될 프로젝트 이름 (default: Faster R-CNN)")
     parser.add_argument("--name", type=str, default="backbone_(manipulated variable)", help="wandb 프로젝트에 업로드 될 실험 이름 (default: backbone_(manipulated variable))")
     prompt_args = parser.parse_args()
-    
+
     if prompt_args.project:
         wandb.init(
             project=prompt_args.project,
-            notes=input("간단한 개요를 입력해 주세요: ")
+            notes=input("간단한 개요를 입력해 주세요: "),
+            entity="boost_cv_09"
         )
         wandb.run.name = prompt_args.name
         wandb.run.save()

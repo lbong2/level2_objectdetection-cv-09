@@ -2,7 +2,7 @@
 
 class Config:
     backbone = 'mobilenet'  # [vgg16, resnet-fpn, mobilenet, resnet50_fpn]
-    backbone_pretrained_weights = None  # [path or None]
+    backbone_pretrained_weights = "/opt/ml/level2_objectdetection-cv-09/mobilenet_v2-b0353104.pth"  # [path or None]
 
     # data transform parameter
     train_horizon_flip_prob = 0.0  # data horizon flip probility in train transform
