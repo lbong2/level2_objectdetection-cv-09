@@ -3,9 +3,9 @@ __pycache__/
 *.py[cod]
 *$py.class
 save/
-wandb
-*.pth
-
+result/
+wandb/
+pretrained/
 # C extensions
 *.so
 
