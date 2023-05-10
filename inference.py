@@ -89,7 +89,7 @@ def main():
     model = create_model(num_classes=test_cfg.num_classes)
     model.cuda()
 
-    weights = os.path.join(test_cfg.model_weights, [file for file in os.listdir(test_cfg.model_weights) if file.endswith(".pth")][0])
+    weights = os.path.join(test_cfg.model_weights, "best_model.pth")
     checkpoint = torch.load(weights, map_location='cpu')
     model.load_state_dict(checkpoint['model'])
     
