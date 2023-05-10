@@ -5,9 +5,9 @@ class Config:
     backbone_pretrained_weights = None  # [path or None]
 
     # data transform parameter
-    train_horizon_flip_prob = 0.0  # data horizon flip probility in train transform
-    min_size = 800
-    max_size = 1000
+    train_horizon_flip_prob = 0.3  # data horizon flip probility in train transform
+    min_size = 1024
+    max_size = 1024
     image_mean = [0.485, 0.456, 0.406]
     image_std = [0.229, 0.224, 0.225]
 
@@ -46,22 +46,28 @@ class Config:
 
     resume = ''  # pretrained_weights
     start_epoch = 0  # start epoch
-    num_epochs = 1  # train epochs
+    num_epochs = 30  # train epochs
 
     # learning rate parameters
-    lr = 5e-3
+    optimizer = 'adam' # ['sgd','adagrad','adam']
+    lr = 1e-3
     momentum = 0.9
     weight_decay = 0.0005
-
+    
     # learning rate schedule
-    lr_gamma = 0.33
-    lr_dec_step_size = 100
+    scheduler = 'cosineannealinglr' # ['steplr', 'lambdalr', 'exponentiallr', 'cosineannealinglr','cycliclr','reducelronplateau']
+    lr_gamma = 0.33 # using steplr, exponentialLR, reducelronplateau
+    lr_decay_step = 20 # using steplr
+    tmax = 5 # using cosineannealinglr
+    maxlr = 0.01 # using cycliclr
+    patience = 5 # using reducelronplateau
+    threshold = 1e-4 # using reducelronplateau
 
-    batch_size = 6
+    batch_size = 16
 
     num_class = 10 + 1  # foreground + 1 background
     data_root_dir = "/opt/ml/dataset"
-    model_save_dir = "test"
+    model_save_dir = "checkpoint"
 
 
 cfg = Config()

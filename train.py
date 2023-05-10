@@ -10,6 +10,8 @@ from utils.evaluate_utils import evaluate
 from utils.im_utils import Compose, ToTensor, RandomHorizontalFlip
 from utils.plot_utils import plot_loss_and_lr, plot_map
 from utils.train_utils import train_one_epoch, write_tb, create_model
+from optimizers.optims import create_optimizer
+from optimizers.schedulers import create_scheduler
 
 import argparse
 import matplotlib.pyplot as plt
@@ -59,14 +61,20 @@ def main(prompt_args):
     model.to(device)
 
     # define optimizer
-    params = [p for p in model.parameters() if p.requires_grad]
-    optimizer = torch.optim.SGD(params, lr=cfg.lr,
-                                momentum=cfg.momentum, weight_decay=cfg.weight_decay)
+    optimizer = create_optimizer(
+            cfg.optimizer, 
+            filter(lambda p: p.requires_grad, model.parameters()), 
+            cfg
+            )
+        
+    lr_scheduler = create_scheduler(cfg.scheduler,optimizer,cfg)
+    # optimizer = torch.optim.SGD(params, lr=cfg.lr,
+    #                             momentum=cfg.momentum, weight_decay=cfg.weight_decay)
 
-    # learning rate scheduler
-    lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer,
-                                                   step_size=cfg.lr_dec_step_size,
-                                                   gamma=cfg.lr_gamma)
+    # # learning rate scheduler
+    # lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer,
+    #                                                step_size=cfg.lr_dec_step_size,
+    #                                                gamma=cfg.lr_gamma)
 
     # train from pretrained weights
     if cfg.resume != "":
@@ -88,11 +96,14 @@ def main(prompt_args):
                                                 device, epoch, train_loss=train_loss, train_lr=learning_rate,
                                                 print_freq=50, warmup=False)
 
-        lr_scheduler.step()
 
         print("------>Starting training data valid")
         _, train_mAP = evaluate(model, train_data_loader, device=device, mAP_list=train_mAP_list)
 
+        if cfg.scheduler == 'reducelronplateau':
+            lr_scheduler.step(train_mAP)
+        else:
+            lr_scheduler.step()
         print("------>Starting validation data valid")
         _, mAP = evaluate(model, val_data_set_loader, device=device, mAP_list=val_mAP)
         print('training mAp is {}'.format(train_mAP))
