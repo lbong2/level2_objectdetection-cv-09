@@ -5,6 +5,7 @@ __pycache__/
 save/
 result/
 wandb/
+pretrained/
 
 # C extensions
 *.so
