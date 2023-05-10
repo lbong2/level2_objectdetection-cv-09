@@ -3,6 +3,9 @@ __pycache__/
 *.py[cod]
 *$py.class
 save/
+result/
+wandb/
+pretrained/
 
 # C extensions
 *.so

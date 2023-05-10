@@ -148,7 +148,7 @@ def main(prompt_args):
 if __name__ == "__main__":
     # args parser - by kyungbong
     parser = argparse.ArgumentParser()
-    parser.add_argument("--project", type=str, default="", help="wandb에 업로드 될 프로젝트 이름 (default: Faster R-CNN)")
+    parser.add_argument("--project", type=str, default="", help="wandb에 업로드 될 프로젝트 이름 (default: Faster_R-CNN)")
     parser.add_argument("--name", type=str, default="backbone_(manipulated variable)", help="wandb 프로젝트에 업로드 될 실험 이름 (default: backbone_(manipulated variable))")
     prompt_args = parser.parse_args()
     
