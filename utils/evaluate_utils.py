@@ -11,7 +11,7 @@ def evaluate(model, data_loader, device, mAP_list=None):
     cpu_device = torch.device("cpu")
     model.eval()
     metric_logger = MetricLogger(delimiter="  ")
-    map_logeer = mAPLogger(iou_threshold=0.5, num_classes = 10)
+    map_logeer = mAPLogger(iou_threshold=0.5, num_classes = 11)
     header = "Test: "
 
     for image, targets in metric_logger.log_every(data_loader, 100, header):
