@@ -6,7 +6,7 @@ import json
 from PIL import Image
 from collections import defaultdict
 
-def get_json_data(root_dir):
+def get_json_data(root_dir,train=True):
     """_summary_
     json 파일에서 데이터를 읽어오는 함수
 
@@ -16,7 +16,12 @@ def get_json_data(root_dir):
     Returns:
         json_data (dict): json data가 들어 있는 dictionary
     """
-    json_path = os.path.join(root_dir, 'train.json')
+    if train:
+        file_name = 'train.json'
+    else:
+        file_name = 'test.json'
+
+    json_path = os.path.join(root_dir, file_name)
 
     with open(json_path) as f:
         json_data = json.load(f)
@@ -68,10 +73,12 @@ def split_train_valid(root_dir, json_data, val_ratio=0.2):
 
 
 class CustomDataset(Dataset):
-    classes = ['General trash', 
+    classes = ['background',
+               'General trash', 
                'Paper', 
                'Paper pack', 
-               'Metal', 'Glass', 
+               'Metal', 
+               'Glass', 
                'Plastic', 
                'Styrofoam', 
                'Plastic bag', 
@@ -119,7 +126,7 @@ class CustomDataset(Dataset):
         iscrowd = []
         for ix, obj in enumerate(objs):
             boxes[ix,:] = obj['clean_bbox']
-            gt_classes[ix] = obj['category_id']
+            gt_classes[ix] = obj['category_id']+1
             iscrowd.append(int(obj['iscrowd']))
 
         image_id = torch.tensor([idx])

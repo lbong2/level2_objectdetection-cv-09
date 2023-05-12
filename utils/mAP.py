@@ -56,7 +56,7 @@ class mAPLogger(object):
     mAP를 계산하고 업데이트 하는 클래스
 
     """
-    def __init__(self, iou_threshold=0.5, num_classes = 10):
+    def __init__(self, iou_threshold=0.5, num_classes = 11):
         """_summary_
 
         Args:
