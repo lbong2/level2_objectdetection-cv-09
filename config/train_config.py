@@ -2,18 +2,18 @@
 
 class Config:
     backbone = 'mobilenet'  # [vgg16, resnet-fpn, mobilenet, resnet50_fpn]
-    backbone_pretrained_weights = "/opt/ml/level2_objectdetection-cv-09/pretrained/mobilenet_v2-b0353104.pth"  # [path or None]
+    backbone_pretrained_weights = "/opt/ml/level2_objectdetection-cv-09/pretrained/mobilenet_v2.pth"  # [path or None]
 
     # data transform parameter
-    train_horizon_flip_prob = 0.3  # data horizon flip probility in train transform
-    min_size = 1024
+    train_horizon_flip_prob = 0.5  # data horizon flip probility in train transform
+    min_size = 512
     max_size = 1024
     image_mean = [0.485, 0.456, 0.406]
     image_std = [0.229, 0.224, 0.225]
 
     # anchor parameters
-    anchor_size = [64, 128, 256]
-    anchor_ratio = [0.5, 1, 2.0]
+    anchor_size = [64, 128, 256, 512]
+    anchor_ratio = [0.25, 0.5, 1, 2.0, 4.0]
 
     # roi align parameters
     roi_out_size = [7, 7]
@@ -33,7 +33,7 @@ class Config:
     rpn_positive_fraction = 0.5
 
     # remove low threshold target
-    box_score_thresh = 0.05
+    box_score_thresh = 0.25
     box_nms_thresh = 0.5
     box_detections_per_img = 100
     box_fg_iou_thresh = 0.5
@@ -46,28 +46,34 @@ class Config:
 
     resume = ''  # pretrained_weights
     start_epoch = 0  # start epoch
-    num_epochs = 30  # train epochs
+    num_epochs = 1  # train epochs
+    early_stop = 5 # early_stop
 
     # learning rate parameters
     optimizer = 'adam' # ['sgd','adagrad','adam']
-    lr = 1e-3
-    momentum = 0.9
+    lr = 1e-4
+    momentum = 0.8
     weight_decay = 0.0005
     
     # learning rate schedule
-    scheduler = 'cosineannealinglr' # ['steplr', 'lambdalr', 'exponentiallr', 'cosineannealinglr','cycliclr','reducelronplateau']
+    scheduler = 'reducelronplateau' # ['steplr', 'lambdalr', 'exponentiallr', 'cosineannealinglr','cycliclr','reducelronplateau']
     lr_gamma = 0.33 # using steplr, exponentialLR, reducelronplateau
     lr_decay_step = 20 # using steplr
     tmax = 5 # using cosineannealinglr
     maxlr = 0.01 # using cycliclr
-    patience = 5 # using reducelronplateau
+    patience = 3 # using reducelronplateau
     threshold = 1e-4 # using reducelronplateau
 
-    batch_size = 16
+    batch_size = 6
 
     num_class = 10 + 1  # foreground + 1 background
+
+    # wandb project
+    wandb = True
+    project_name = "Faster_R-CNN"
+    run_name = "wandb_plot_test"
+    run_note = "wandb_plot_test"
+
     data_root_dir = "/opt/ml/dataset"
-    model_save_dir = "checkpoint"
-
-
+    model_save_dir = "save/"+run_name
 cfg = Config()
