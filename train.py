@@ -22,13 +22,10 @@ def main():
     if cfg["wandb"]:
         wandb.init(
             config=cfg
-            # project=cfg.project,
-            # notes=cfg.notes,
-            # entity=cfg.entity,
         )
-        wandb.run.save()
     # wandb config
     cfg = train_config.ChangeConfig(wandb.config)
+    cfg.model_save_dir = os.path.join(cfg.model_save_dir,cfg.project,cfg.name)
 
     device = torch.device(cfg.device_name)
     print("Using {} device training.".format(device.type))
@@ -130,16 +127,19 @@ def main():
             for k, v in loss_dict.items():
                 train_board_info["train/"+k] = v.item()
             train_board_info['train/total loss'] = total_loss.item()
+            train_board_info['train/epoch'] = epoch
 
-            wandb.log(train_board_info, step=epoch)
+            wandb.log(train_board_info, step= epoch)
             wandb.log(metric_board_info, step=epoch)
 
-            train_table = wandb.Table(columns=["class","ap"],
+            train_table = wandb.Table(columns=["ap","class"],
                                 data =[[x,y] for x,y in zip(train_aps,CustomDataset.classes)])
-            val_table = wandb.Table(columns=["class","ap"],
+            val_table = wandb.Table(columns=["ap","class"],
                                 data = [[x,y] for x,y in zip(val_aps,CustomDataset.classes)])
-            wandb.log({'histogram': wandb.plot.histogram(train_table, value='ap', title='APs by Class')})
-            wandb.log({'histogram': wandb.plot.histogram(val_table, value='ap', title='APs by Class')})
+            wandb.log({
+                'hist/trian_APs': wandb.plot.histogram(train_table, value='ap', title='APs by Class'),
+                'hist/val_APs': wandb.plot.histogram(val_table, value='ap', title='APs by Class')
+                }, step = epoch)
             # wandb.log({'val_ap for class': wandb.plot.histogram(val_table)})
 
 
@@ -154,8 +154,10 @@ def main():
                 'epoch': epoch}
             if not os.path.exists(cfg.model_save_dir):
                 os.makedirs(cfg.model_save_dir)
+            
             torch.save(save_files,
-                       os.path.join(cfg.model_save_dir, "best_model.pth".format(cfg.backbone, epoch, mAP)))
+                       os.path.join(cfg.model_save_dir, "best.pth"))
+            print(f"save {cfg.model_save_dir}/best.pth")
         else:
             early_stop_count +=1
             if early_stop_count > cfg.early_stop:
@@ -183,12 +185,13 @@ if __name__ == "__main__":
     parser.add_argument("--sweep",action='store_true',help="using wandb sweep")
     args = parser.parse_args()
 
+    version = torch.version.__version__[:5]
+    print('torch version is {}'.format(version))
+
     if args.sweep:
         sweep_id = wandb.sweep(
             sweep = train_config.sweep_config,
         )
         wandb.agent(sweep_id, function=main)
     else:
-        version = torch.version.__version__[:5]
-        print('torch version is {}'.format(version))
         main()

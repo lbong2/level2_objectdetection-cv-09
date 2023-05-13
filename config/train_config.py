@@ -80,7 +80,7 @@ default_config ={
 }
 
 sweep_config ={
-    'method' : 'bayes',
+    'method' : 'grid',
     'project' : "sweep Faster_R-CNN",
     'name' : 'sweep_{}',
     'metric':{
@@ -93,12 +93,10 @@ sweep_config ={
             'values':['adam','sgd']
         },
         'lr':{
-            'distribution':'uniform',
-            'min':1e-6,
-            'max':1e-2
+            'values':[1e-3, 1e-4, 1e-5]
         },
         'batch_size':{
-            'values':[4,8,16]
+            'values':[4,16]
         }
 
     },
