@@ -5,7 +5,7 @@ import torch
 import wandb
 import pandas as pd
 
-from config.train_config import cfg, Config
+from config import train_config
 from dataloader.dataset import CustomDataset, split_train_valid, get_all_annotation, get_json_data
 from utils.evaluate_utils import evaluate
 from utils.im_utils import Compose, ToTensor, RandomHorizontalFlip
@@ -15,11 +15,24 @@ from optimizers.optims import create_optimizer
 from optimizers.schedulers import create_scheduler
 
 import matplotlib.pyplot as plt
+import argparse
 
 def main():
+    cfg = train_config.default_config
+    if cfg["wandb"]:
+        wandb.init(
+            config=cfg
+            # project=cfg.project,
+            # notes=cfg.notes,
+            # entity=cfg.entity,
+        )
+        wandb.run.save()
+    # wandb config
+    cfg = train_config.ChangeConfig(wandb.config)
+
     device = torch.device(cfg.device_name)
     print("Using {} device training.".format(device.type))
-
+  
     if not os.path.exists(cfg.model_save_dir):
         os.makedirs(cfg.model_save_dir)
 
@@ -56,7 +69,7 @@ def main():
                                                       collate_fn=train_data_set.collate_fn)
 
     # create model num_classes equal background + 80 classes
-    model = create_model(num_classes=cfg.num_class)
+    model = create_model(num_classes=cfg.num_class,cfg=cfg)
 
     model.to(device)
 
@@ -163,20 +176,19 @@ def main():
             "mAPCurve": wandb.Image(plt.imread(os.path.join(cfg.model_save_dir, "mAP.png"))),
             "loss_lrCurve": wandb.Image(plt.imread(os.path.join(cfg.model_save_dir, "loss_and_lr.png"))),
         })
-        wandb.config.update({k:v for k, v in Config.__dict__.items() if not k.startswith("__") and not callable(v)})
         wandb.finish()     
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--sweep",action='store_true',help="using wandb sweep")
+    args = parser.parse_args()
 
-    if cfg.wandb:
-        wandb.init(
-            project=cfg.project_name,
-            notes=cfg.run_note,
-            entity="boost_cv_09"
+    if args.sweep:
+        sweep_id = wandb.sweep(
+            sweep = train_config.sweep_config,
         )
-        wandb.run.name = cfg.run_name
-        wandb.run.save()
-
-    version = torch.version.__version__[:5]
-    print('torch version is {}'.format(version))
-    main()
+        wandb.agent(sweep_id, function=main)
+    else:
+        version = torch.version.__version__[:5]
+        print('torch version is {}'.format(version))
+        main()
