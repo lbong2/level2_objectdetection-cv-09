@@ -9,7 +9,6 @@ from torchvision import ops
 
 from backbone.mobilenet import MobileNetV2
 from backbone.resnet50_fpn_model import *
-from config.train_config import cfg
 from utils.anchor_utils import AnchorsGenerator
 from utils.faster_rcnn_utils import FasterRCNN, FastRCNNPredictor
 import os
@@ -18,7 +17,7 @@ os.environ['MASTER_ADDR'] = '127.0.0.1'
 os.environ['MASTER_PORT'] = '30003'
 dist.init_process_group(backend='nccl', rank=0, world_size=1)
 
-def create_model(num_classes):
+def create_model(num_classes,cfg):
     global backbone, model
     backbone_network = cfg.backbone
 

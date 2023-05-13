@@ -3,29 +3,51 @@ import os
 import torch
 #from tensorboardX import SummaryWriter
 import wandb
-import pandas as pd
 
-from config.train_config import cfg, Config
+from config import train_config
 from dataloader.dataset import CustomDataset, split_train_valid, get_all_annotation, get_json_data
 from utils.evaluate_utils import evaluate
-from utils.im_utils import Compose, ToTensor, RandomHorizontalFlip
 from utils.plot_utils import plot_loss_and_lr, plot_map
 from utils.train_utils import train_one_epoch, create_model
 from optimizers.optims import create_optimizer
 from optimizers.schedulers import create_scheduler
 
+from utils.im_utils import Compose, ToTensor, RandomHorizontalFlip
+import albumentations as A
+from albumentations.pytorch import ToTensorV2
+
 import matplotlib.pyplot as plt
+import argparse
 
 def main():
+    cfg = train_config.default_config
+    if cfg["wandb"]:
+        wandb.init(
+            entity=cfg['entity'],
+            project=cfg['project'],
+            name=cfg['name'],
+            config=cfg,
+        )
+    # wandb config
+    cfg = train_config.ChangeConfig(wandb.config)
+    cfg.model_save_dir = os.path.join(cfg.model_save_dir,cfg.project,cfg.name)
+
     device = torch.device(cfg.device_name)
     print("Using {} device training.".format(device.type))
-
+  
     if not os.path.exists(cfg.model_save_dir):
         os.makedirs(cfg.model_save_dir)
 
     data_transform = {
-        "train": Compose([ToTensor(), RandomHorizontalFlip(cfg.train_horizon_flip_prob)]),
-        "val": Compose([ToTensor()])
+        "train": A.Compose([
+            A.HorizontalFlip(p=cfg.train_horizon_flip_prob),
+            # A.RandomBrightnessContrast(p=0.2),
+            # A.RandomRotate90(p=0.5),
+            ToTensorV2(),
+        ], bbox_params=A.BboxParams(format='pascal_voc',label_fields=['labels'])),
+        "val": A.Compose([
+            ToTensorV2(),
+            ], bbox_params=A.BboxParams(format='pascal_voc',label_fields=['labels']))
     }
 
     if not os.path.exists(cfg.data_root_dir):
@@ -39,12 +61,13 @@ def main():
     # load train data set
     train_data_set = CustomDataset(train_info, json_anno, data_transform['train'])
     batch_size = cfg.batch_size
-    nw = min([os.cpu_count(), batch_size if batch_size > 1 else 0, 8])
-    print('Using {} dataloader workers'.format(nw))
+    if cfg.num_workers == False:
+        cfg.num_workers = min([os.cpu_count(), batch_size if batch_size > 1 else 0, 8])
+    print('Using {} dataloader workers'.format(cfg.num_workers))
     train_data_loader = torch.utils.data.DataLoader(train_data_set,
                                                     batch_size=batch_size,
                                                     shuffle=True,
-                                                    num_workers=nw,
+                                                    num_workers=cfg.num_workers,
                                                     collate_fn=train_data_set.collate_fn)
 
     # load validation data set
@@ -52,11 +75,11 @@ def main():
     val_data_set_loader = torch.utils.data.DataLoader(val_data_set,
                                                       batch_size=batch_size,
                                                       shuffle=False,
-                                                      num_workers=nw,
+                                                      num_workers=cfg.num_workers,
                                                       collate_fn=train_data_set.collate_fn)
 
     # create model num_classes equal background + 80 classes
-    model = create_model(num_classes=cfg.num_class)
+    model = create_model(num_classes=cfg.num_class,cfg=cfg)
 
     model.to(device)
 
@@ -117,16 +140,19 @@ def main():
             for k, v in loss_dict.items():
                 train_board_info["train/"+k] = v.item()
             train_board_info['train/total loss'] = total_loss.item()
+            train_board_info['train/epoch'] = epoch
 
-            wandb.log(train_board_info, step=epoch)
+            wandb.log(train_board_info, step= epoch)
             wandb.log(metric_board_info, step=epoch)
 
-            train_table = wandb.Table(columns=["class","ap"],
+            train_table = wandb.Table(columns=["ap","class"],
                                 data =[[x,y] for x,y in zip(train_aps,CustomDataset.classes)])
-            val_table = wandb.Table(columns=["class","ap"],
+            val_table = wandb.Table(columns=["ap","class"],
                                 data = [[x,y] for x,y in zip(val_aps,CustomDataset.classes)])
-            wandb.log({'histogram': wandb.plot.histogram(train_table, value='ap', title='APs by Class')})
-            wandb.log({'histogram': wandb.plot.histogram(val_table, value='ap', title='APs by Class')})
+            wandb.log({
+                'hist/trian_APs': wandb.plot.histogram(train_table, value='ap', title='APs by Class'),
+                'hist/val_APs': wandb.plot.histogram(val_table, value='ap', title='APs by Class')
+                }, step = epoch)
             # wandb.log({'val_ap for class': wandb.plot.histogram(val_table)})
 
 
@@ -141,8 +167,10 @@ def main():
                 'epoch': epoch}
             if not os.path.exists(cfg.model_save_dir):
                 os.makedirs(cfg.model_save_dir)
+            
             torch.save(save_files,
-                       os.path.join(cfg.model_save_dir, "best_model.pth".format(cfg.backbone, epoch, mAP)))
+                       os.path.join(cfg.model_save_dir, "best.pth"))
+            print(f"save {cfg.model_save_dir}/best.pth")
         else:
             early_stop_count +=1
             if early_stop_count > cfg.early_stop:
@@ -163,20 +191,20 @@ def main():
             "mAPCurve": wandb.Image(plt.imread(os.path.join(cfg.model_save_dir, "mAP.png"))),
             "loss_lrCurve": wandb.Image(plt.imread(os.path.join(cfg.model_save_dir, "loss_and_lr.png"))),
         })
-        wandb.config.update({k:v for k, v in Config.__dict__.items() if not k.startswith("__") and not callable(v)})
         wandb.finish()     
 
 if __name__ == "__main__":
-
-    if cfg.wandb:
-        wandb.init(
-            project=cfg.project_name,
-            notes=cfg.run_note,
-            entity="boost_cv_09"
-        )
-        wandb.run.name = cfg.run_name
-        wandb.run.save()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--sweep",action='store_true',help="using wandb sweep")
+    args = parser.parse_args()
 
     version = torch.version.__version__[:5]
     print('torch version is {}'.format(version))
-    main()
+
+    if args.sweep:
+        sweep_id = wandb.sweep(
+            sweep = train_config.sweep_config,
+        )
+        wandb.agent(sweep_id, function=main)
+    else:
+        main()

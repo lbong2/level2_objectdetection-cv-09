@@ -11,7 +11,7 @@ def evaluate(model, data_loader, device, mAP_list=None):
     cpu_device = torch.device("cpu")
     model.eval()
     metric_logger = MetricLogger(delimiter="  ")
-    map_logeer = mAPLogger(iou_threshold=0.5, num_classes = 11)
+    map_logger = mAPLogger(iou_threshold=0.5, num_classes = 11)
     header = "Test: "
 
     for image, targets in metric_logger.log_every(data_loader, 100, header):
@@ -52,7 +52,7 @@ def evaluate(model, data_loader, device, mAP_list=None):
                     output['boxes'][i][2], 
                     output['boxes'][i][3]] )
         evaluator_time = time.time()
-        map_logeer.update(pred_boxes,true_boxes)
+        map_logger.update(pred_boxes,true_boxes)
         evaluator_time = time.time() - evaluator_time
 
         metric_logger.update(model_time=model_time, evaluator_time=evaluator_time)
@@ -63,7 +63,7 @@ def evaluate(model, data_loader, device, mAP_list=None):
     print("Averaged stats:", metric_logger)
     torch.set_num_threads(n_threads)
     if isinstance(mAP_list, list):
-        mAP_list.append(map_logeer.get_mAP())
+        mAP_list.append(map_logger.get_mAP())
 
-    return map_logeer.get_ap_list(), map_logeer.get_mAP()
+    return map_logger.get_ap_list(), map_logger.get_mAP()
 
