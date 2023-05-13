@@ -3,8 +3,9 @@ import torch
 from torch.utils.data import Dataset
 import numpy as np
 import json
-from PIL import Image
+import cv2
 from collections import defaultdict
+import albumentations as A
 
 def get_json_data(root_dir,train=True):
     """_summary_
@@ -103,12 +104,15 @@ class CustomDataset(Dataset):
     def __getitem__(self,idx):
         img_path = self.image_paths[idx]
         # print(img_path)
-        img = Image.open(img_path)
+        img = cv2.imread(img_path)
+        img = cv2.cvtColor(img,cv2.COLOR_BGR2RGB).astype(np.float32)
+        img /= 255.0
         id = self.image_ids[idx]
 
         w = self.width
         h = self.height
-        objs = []
+        # albumentation 을 사용하기위해 box.xyxy 로 변경하기
+        objs=[]
         for obj in self.all_annotation[id]:
             x1 = np.max((0, obj['bbox'][0]))
             y1 = np.max((0, obj['bbox'][1]))
@@ -117,29 +121,34 @@ class CustomDataset(Dataset):
             if obj['area'] > 0 and x2 > x1 and y2 > y1:
                 obj['clean_bbox'] = [x1, y1, x2, y2]
                 objs.append(obj)
-        
         num_objs = len(objs)
 
         boxes = np.zeros((num_objs, 4), dtype=np.float32)
-        gt_classes = np.zeros((num_objs), dtype=np.int32)
+        labels = np.zeros((num_objs), dtype=np.int32)
 
         iscrowd = []
         for ix, obj in enumerate(objs):
             boxes[ix,:] = obj['clean_bbox']
-            gt_classes[ix] = obj['category_id']+1
+            labels[ix] = obj['category_id']+1
             iscrowd.append(int(obj['iscrowd']))
 
-        image_id = torch.tensor([idx])
-        boxes = torch.as_tensor(boxes, dtype=torch.float32)
-        gt_classes = torch.as_tensor(gt_classes, dtype=torch.int32)
-        iscrowd = torch.as_tensor(iscrowd, dtype=torch.int32)
 
         area = (boxes[:, 3] - boxes[:, 1]) * (boxes[:, 2] - boxes[:, 0])
 
-        target = {"boxes": boxes, "labels": gt_classes, "image_id": image_id, "area": area, "iscrowd": iscrowd}
+        if self._transforms:
+            # albumentation 후 coco는 box.xywh로 나오게 된다, pascal은 box.xyxy
+            output = self._transforms(image=img,bboxes=boxes, labels=labels)
+            img = output['image']
+            boxes = output['bboxes']
+            labels = output['labels']
 
-        if self._transforms is not None:
-            img, target = self._transforms(img, target)
+            iscrowd = torch.as_tensor(iscrowd, dtype=torch.int32)
+            image_id = torch.tensor([idx])
+            boxes = torch.as_tensor(boxes, dtype=torch.float32)
+            labels = torch.as_tensor(labels, dtype=torch.int32)
+            area = torch.as_tensor(area, dtype= torch.float32)
+
+        target = {"boxes": boxes, "labels": labels, "image_id": image_id, "area": area, "iscrowd": iscrowd}
         
         return img, target
 

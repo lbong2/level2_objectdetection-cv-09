@@ -64,15 +64,17 @@ default_config ={
     'patience' : 3, # using reducelronplateau
     'threshold' : 1e-4, # using reducelronplateau
 
-    'batch_size' : 6,
+    'batch_size' : 16,
 
     'num_class' : 10 + 1,  # foreground + 1 background
 
+    'num_workers' : 0,
+
     # wandb project
     'wandb' : True,
-    'project' : "Faster_R-CNN",
-    'name' : "wandb_plot_test",
-    'notes' : "wandb_plot_test",
+    'project': "Faster_R-CNN",
+    'name': "Horizon",
+    'notes' : "albumentation test",
     'entity' : "boost_cv_09",
 
     'data_root_dir' : "/opt/ml/dataset",

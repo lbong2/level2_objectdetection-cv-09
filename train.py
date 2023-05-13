@@ -3,16 +3,18 @@ import os
 import torch
 #from tensorboardX import SummaryWriter
 import wandb
-import pandas as pd
 
 from config import train_config
 from dataloader.dataset import CustomDataset, split_train_valid, get_all_annotation, get_json_data
 from utils.evaluate_utils import evaluate
-from utils.im_utils import Compose, ToTensor, RandomHorizontalFlip
 from utils.plot_utils import plot_loss_and_lr, plot_map
 from utils.train_utils import train_one_epoch, create_model
 from optimizers.optims import create_optimizer
 from optimizers.schedulers import create_scheduler
+
+from utils.im_utils import Compose, ToTensor, RandomHorizontalFlip
+import albumentations as A
+from albumentations.pytorch import ToTensorV2
 
 import matplotlib.pyplot as plt
 import argparse
@@ -21,7 +23,10 @@ def main():
     cfg = train_config.default_config
     if cfg["wandb"]:
         wandb.init(
-            config=cfg
+            entity=cfg['entity'],
+            project=cfg['project'],
+            name=cfg['name'],
+            config=cfg,
         )
     # wandb config
     cfg = train_config.ChangeConfig(wandb.config)
@@ -34,8 +39,15 @@ def main():
         os.makedirs(cfg.model_save_dir)
 
     data_transform = {
-        "train": Compose([ToTensor(), RandomHorizontalFlip(cfg.train_horizon_flip_prob)]),
-        "val": Compose([ToTensor()])
+        "train": A.Compose([
+            A.HorizontalFlip(p=cfg.train_horizon_flip_prob),
+            # A.RandomBrightnessContrast(p=0.2),
+            # A.RandomRotate90(p=0.5),
+            ToTensorV2(),
+        ], bbox_params=A.BboxParams(format='pascal_voc',label_fields=['labels'])),
+        "val": A.Compose([
+            ToTensorV2(),
+            ], bbox_params=A.BboxParams(format='pascal_voc',label_fields=['labels']))
     }
 
     if not os.path.exists(cfg.data_root_dir):
@@ -49,12 +61,13 @@ def main():
     # load train data set
     train_data_set = CustomDataset(train_info, json_anno, data_transform['train'])
     batch_size = cfg.batch_size
-    nw = min([os.cpu_count(), batch_size if batch_size > 1 else 0, 8])
-    print('Using {} dataloader workers'.format(nw))
+    if cfg.num_workers == False:
+        cfg.num_workers = min([os.cpu_count(), batch_size if batch_size > 1 else 0, 8])
+    print('Using {} dataloader workers'.format(cfg.num_workers))
     train_data_loader = torch.utils.data.DataLoader(train_data_set,
                                                     batch_size=batch_size,
                                                     shuffle=True,
-                                                    num_workers=nw,
+                                                    num_workers=cfg.num_workers,
                                                     collate_fn=train_data_set.collate_fn)
 
     # load validation data set
@@ -62,7 +75,7 @@ def main():
     val_data_set_loader = torch.utils.data.DataLoader(val_data_set,
                                                       batch_size=batch_size,
                                                       shuffle=False,
-                                                      num_workers=nw,
+                                                      num_workers=cfg.num_workers,
                                                       collate_fn=train_data_set.collate_fn)
 
     # create model num_classes equal background + 80 classes
