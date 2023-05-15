@@ -12,12 +12,22 @@ from utils.train_utils import train_one_epoch, create_model
 from optimizers.optims import create_optimizer
 from optimizers.schedulers import create_scheduler
 
-from utils.im_utils import Compose, ToTensor, RandomHorizontalFlip
 import albumentations as A
 from albumentations.pytorch import ToTensorV2
 
 import matplotlib.pyplot as plt
 import argparse
+import numpy as np
+import random
+
+def seed_everything(seed):
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)  # if use multi-GPU
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+    np.random.seed(seed)
+    random.seed(seed)
 
 def main():
     cfg = train_config.default_config
@@ -28,11 +38,13 @@ def main():
             name=cfg['name'],
             config=cfg,
         )
+        cfg = wandb.config
+    cfg = train_config.ChangeConfig(cfg)
     # wandb config
-    cfg = train_config.ChangeConfig(wandb.config)
     cfg.model_save_dir = os.path.join(cfg.model_save_dir,cfg.project,cfg.name)
+    seed_everything(cfg.seed)
 
-    device = torch.device(cfg.device_name)
+    device = torch.device(cfg.device)
     print("Using {} device training.".format(device.type))
   
     if not os.path.exists(cfg.model_save_dir):
@@ -41,8 +53,10 @@ def main():
     data_transform = {
         "train": A.Compose([
             A.HorizontalFlip(p=cfg.train_horizon_flip_prob),
-            # A.RandomBrightnessContrast(p=0.2),
-            # A.RandomRotate90(p=0.5),
+            A.RandomBrightnessContrast(p=0.2),
+            A.ShiftScaleRotate(shift_limit=[-0.1,0.1],scale_limit=[-0.5,0.5]),
+            # A.RandomCrop(1024,1024),
+            # A.Resize(1024,1024),
             ToTensorV2(),
         ], bbox_params=A.BboxParams(format='pascal_voc',label_fields=['labels'])),
         "val": A.Compose([
@@ -110,7 +124,7 @@ def main():
     for epoch in range(cfg.start_epoch, cfg.num_epochs):
         loss_dict, total_loss = train_one_epoch(model, optimizer, train_data_loader,
                                                 device, epoch, train_loss=train_loss, train_lr=learning_rate,
-                                                print_freq=50, warmup=False)
+                                                print_freq=50, warmup=False, loss_gain=cfg.loss_gain)
 
 
         print("------>Starting training data valid")

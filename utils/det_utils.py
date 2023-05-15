@@ -332,19 +332,3 @@ class Matcher(object):
         return matches
 
 
-def smooth_l1_loss(input, target, beta: float = 1. / 9, size_average: bool = True):
-    """
-    smooth_l1_loss for bbox regression
-    :param input:
-    :param target:
-    :param beta:
-    :param size_average:
-    :return:
-    """
-
-    n = torch.abs(input - target)
-    cond = n < beta
-    loss = torch.where(cond, 0.5 * n ** 2 / beta, n - 0.5 * beta)
-    if size_average:
-        return loss.mean()
-    return loss.sum()

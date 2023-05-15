@@ -149,7 +149,8 @@ class CustomDataset(Dataset):
             area = torch.as_tensor(area, dtype= torch.float32)
 
         target = {"boxes": boxes, "labels": labels, "image_id": image_id, "area": area, "iscrowd": iscrowd}
-        
+        if len(boxes.shape) != 2 or boxes.shape[-1] != 4:
+            img, target = self.__getitem__(idx+1)
         return img, target
 
     @staticmethod

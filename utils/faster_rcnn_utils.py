@@ -234,8 +234,9 @@ class FasterRCNN(FasterRCNNBase):
                  box_score_thresh=0.05, box_nms_thresh=0.5, box_detections_per_img=100,
                  box_fg_iou_thresh=0.5, box_bg_iou_thresh=0.5,
                  box_batch_size_per_image=512, box_positive_fraction=0.25,
-                 bbox_reg_weights=None
-                 ):
+                 bbox_reg_weights=None,
+                 box_loss='smoothl1loss', cls_loss='cross_entropy', 
+                 rpn_box_loss='smoothl1loss', rpn_cls_loss='cross_entropy', device='cuda'):
 
         if not hasattr(backbone, "out_channels"):
             raise ValueError(
@@ -258,7 +259,6 @@ class FasterRCNN(FasterRCNNBase):
 
         # output channels of the backbone
         out_channels = backbone.out_channels
-
         if rpn_head is None:
             rpn_head = RPNHead(
                 out_channels, rpn_anchor_generator.num_anchors_per_location()[0]
@@ -271,7 +271,8 @@ class FasterRCNN(FasterRCNNBase):
             rpn_anchor_generator, rpn_head,
             rpn_fg_iou_thresh, rpn_bg_iou_thresh,
             rpn_batch_size_per_image, rpn_positive_fraction,
-            rpn_pre_nms_top_n, rpn_post_nms_top_n, rpn_nms_thresh)
+            rpn_pre_nms_top_n, rpn_post_nms_top_n, rpn_nms_thresh,
+            box_loss=rpn_box_loss,cls_loss=rpn_cls_loss,device=device)
 
         # two fc layer after roi pooling
         if box_head is None:
@@ -295,7 +296,8 @@ class FasterRCNN(FasterRCNNBase):
             box_fg_iou_thresh, box_bg_iou_thresh,
             box_batch_size_per_image, box_positive_fraction,
             bbox_reg_weights,
-            box_score_thresh, box_nms_thresh, box_detections_per_img)
+            box_score_thresh, box_nms_thresh, box_detections_per_img,
+            box_loss=box_loss,cls_loss=cls_loss,device=device)
 
         transform = GeneralizedRCNNTransform(min_size, max_size, image_mean, image_std)
 

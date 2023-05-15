@@ -4,42 +4,7 @@ from torch.jit.annotations import List, Dict, Tuple
 
 import utils.boxes_utils as box_op
 from utils.det_utils import *
-
-
-def fastrcnn_loss(class_logits, box_regression, labels, regression_targets):
-    """
-    Computes the loss for Faster R-CNN.
-    :param class_logits: predicted class, shape=[num_anchors, num_classes]
-    :param box_regression: predicted bbox regression
-    :param labels: true label
-    :param regression_targets: true bbox
-    :return: classification_loss (Tensor)
-             box_loss (Tensor)
-    """
-
-    labels = torch.cat(labels, dim=0)
-    regression_targets = torch.cat(regression_targets, dim=0)
-
-    classification_loss = F.cross_entropy(class_logits, labels)
-
-    # get indices that correspond to the regression targets for
-    # the corresponding ground truth labels, to be used with
-    # advanced indexing
-    sampled_pos_inds_subset = torch.nonzero(labels > 0).squeeze(1)
-
-    labels_pos = labels[sampled_pos_inds_subset]
-
-    # shape=[num_proposal, num_classes]
-    N, num_classes = class_logits.shape
-    box_regression = box_regression.reshape(N, -1, 4)
-
-    box_loss = smooth_l1_loss(box_regression[sampled_pos_inds_subset, labels_pos],
-                              regression_targets[sampled_pos_inds_subset],
-                              beta=1 / 9,
-                              size_average=False,
-                              ) / labels.numel()
-
-    return classification_loss, box_loss
+from utils.losses import create_criterion, SmoothL1Loss
 
 
 def add_gt_proposals(proposals, gt_boxes):
@@ -77,7 +42,10 @@ class RoIHeads(torch.nn.Module):
                  # Faster R-CNN inference
                  score_thresh,
                  nms_thresh,
-                 detection_per_img):
+                 detection_per_img,
+                 box_loss,
+                 cls_loss,
+                 device):
         super(RoIHeads, self).__init__()
 
         self.box_similarity = box_op.box_iou
@@ -103,6 +71,8 @@ class RoIHeads(torch.nn.Module):
         self.score_thresh = score_thresh
         self.nms_thresh = nms_thresh
         self.detection_per_img = detection_per_img
+        self.box_criterion = create_criterion(box_loss).to(device)
+        self.class_criterion = create_criterion(cls_loss).to(device)
 
     def assign_targets_to_proposals(self, proposals, gt_boxes, gt_labels):
         """
@@ -284,6 +254,40 @@ class RoIHeads(torch.nn.Module):
 
         return all_boxes, all_scores, all_labels
 
+    def fastrcnn_loss(self, class_logits, box_regression, labels, regression_targets):
+        """
+        Computes the loss for Faster R-CNN.
+        :param class_logits: predicted class, shape=[num_anchors, num_classes]
+        :param box_regression: predicted bbox regression
+        :param labels: true label
+        :param regression_targets: true bbox
+        :return: classification_loss (Tensor)
+                box_loss (Tensor)
+        """
+
+        labels = torch.cat(labels, dim=0)
+        regression_targets = torch.cat(regression_targets, dim=0)
+        classification_loss = self.class_criterion(class_logits, labels)
+
+        # get indices that correspond to the regression targets for
+        # the corresponding ground truth labels, to be used with
+        # advanced indexing
+        sampled_pos_inds_subset = torch.nonzero(labels > 0).squeeze(1)
+
+        labels_pos = labels[sampled_pos_inds_subset]
+
+        # shape=[num_proposal, num_classes]
+        N, num_classes = class_logits.shape
+        box_regression = box_regression.reshape(N, -1, 4)
+
+        box_loss = self.box_criterion(box_regression[sampled_pos_inds_subset, labels_pos],
+                                regression_targets[sampled_pos_inds_subset],
+                                ) 
+        if isinstance(self.box_criterion,SmoothL1Loss):
+            box_loss = box_loss / labels.numel()
+
+        return classification_loss, box_loss
+
     def forward(self,
                 features,
                 proposals,
@@ -323,7 +327,7 @@ class RoIHeads(torch.nn.Module):
         losses = {}
         if self.training:
             assert labels is not None and regression_targets is not None
-            loss_classifier, loss_box_reg = fastrcnn_loss(
+            loss_classifier, loss_box_reg = self.fastrcnn_loss(
                 class_logits, box_regression, labels, regression_targets)
             losses = {
                 "loss_classifier": loss_classifier,
