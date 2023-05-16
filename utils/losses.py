@@ -60,7 +60,7 @@ def _upcast_non_float(t):
     return t
 
 class SmoothL1Loss(nn.Module):
-    def __init__(self,beta: float=1./9, size_average=True):
+    def __init__(self,beta: float=1./9, size_average=False):
         super(SmoothL1Loss,self).__init__()
         self.beta = beta
         self.size_average=size_average
