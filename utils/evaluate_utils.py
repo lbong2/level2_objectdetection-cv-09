@@ -59,7 +59,7 @@ def evaluate(model, data_loader, device, mAP_list=None):
 
     # gather the stats from all processes
     metric_logger.synchronize_between_processes()
-    
+    map_logger.calculrate()
     print("Averaged stats:", metric_logger)
     torch.set_num_threads(n_threads)
     if isinstance(mAP_list, list):
