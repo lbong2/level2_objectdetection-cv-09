@@ -85,7 +85,7 @@ class mAPLogger(object):
         true_boxes (list): true_boxes (list):  [[train_idx(image_num), class_id, area, x1, y1, x2, y2], ...]
         
         """
-        for c in range(self.num_classes):
+        for c in range(1,self.num_classes):
             detections = [] # 각 클래스의 detection이 담길 리스트
             ground_truths = [] # 각 클래스의 ground truth가 담길 리스트
             
@@ -140,14 +140,16 @@ class mAPLogger(object):
             # update
             self.TPs[c] = torch.cat((self.TPs[c],TP),dim=0)
             self.FPs[c] = torch.cat((self.FPs[c],FP),dim=0)
-
+    
+    def calculrate(self):
+        for c in range(1,self.num_classes):
             TP_cumsum = torch.cumsum(self.TPs[c], dim=0)
             FP_cumsum = torch.cumsum(self.FPs[c], dim=0)
             self.recalls[c] = TP_cumsum / (self.total_true_bboxes[c] + self.epsilon)
             self.precisions[c] = torch.divide(TP_cumsum, (TP_cumsum + FP_cumsum + self.epsilon)) # TP_cumsum + FP_cumsum을 하면 1씩 증가하게됨
-            
             self.recalls[c] = torch.cat((torch.tensor([0]), self.recalls[c])) # x축의 시작은 0 이므로 맨앞에 0추가
             self.precisions[c] = torch.cat((torch.tensor([1]), self.precisions[c])) # y축의 시작은 1 이므로 맨앞에 1 추가
+            print(f"{c} -> {self.recalls[c].shape} {self.precisions[c].shape}")
             self.APs[c] = torch.trapz(self.precisions[c], self.recalls[c]).item() # 현재 클래스에 대해 AP를 계산해줌, trapz(y,x) x에 대한 y의 적분
         
         self.mAP = round(sum(self.APs) / len(self.APs),4)
