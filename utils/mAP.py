@@ -1,6 +1,6 @@
 import torch
 from collections import Counter
-
+import numpy as np
 
 def intersection_over_union(boxes_preds, boxes_labels, eps=1e-6, box_format="corners"):
     """
@@ -69,6 +69,7 @@ class mAPLogger(object):
         
         self.TPs = [torch.Tensor([]) for _ in range(self.num_classes)]
         self.FPs = [torch.Tensor([]) for _ in range(self.num_classes)]
+        self.scores = [[] for _ in range(self.num_classes)]
         self.total_true_bboxes = [0]* self.num_classes
         self.recalls = [0]* self.num_classes
         self.precisions = [0]* self.num_classes
@@ -105,7 +106,7 @@ class mAPLogger(object):
             for key, val in amount_bboxes.items():
                 amount_bboxes[key] = torch.zeros(val) # 개수를 1차원 tensor로 변환
             # amount_boxes = {0: torch.tensor([0,0,0]), 1:torch.tensor([0,0,0,0,0])}
-            
+
             detections.sort(key=lambda x: x[2], reverse=True) # detections의 confidence가 높은 순으로 정렬
             TP = torch.zeros((len(detections))) # detections 개수만큼 1차원 TP tensor를 초기화
             FP = torch.zeros((len(detections))) # 마찬가지로 1차원 FP tensor 초기화
@@ -136,6 +137,7 @@ class mAPLogger(object):
                         FP[detection_idx] = 1 # 이미 해당 물체를 detect한 물체가 있다면 즉 인덱스 자리에 이미 TP가 1이라면 FP=1적용
                 else:
                     FP[detection_idx] = 1
+                self.scores[c].append(detection[2].item())
 
             # update
             self.TPs[c] = torch.cat((self.TPs[c],TP),dim=0)
@@ -143,13 +145,15 @@ class mAPLogger(object):
     
     def calculrate(self):
         for c in range(1,self.num_classes):
+            sorted_indices = np.argsort(self.scores[c])[::-1]
+            self.TPs[c] = self.TPs[c][sorted_indices]
+            self.FPs[c] = self.FPs[c][sorted_indices]
             TP_cumsum = torch.cumsum(self.TPs[c], dim=0)
             FP_cumsum = torch.cumsum(self.FPs[c], dim=0)
             self.recalls[c] = TP_cumsum / (self.total_true_bboxes[c] + self.epsilon)
             self.precisions[c] = torch.divide(TP_cumsum, (TP_cumsum + FP_cumsum + self.epsilon)) # TP_cumsum + FP_cumsum을 하면 1씩 증가하게됨
             self.recalls[c] = torch.cat((torch.tensor([0]), self.recalls[c])) # x축의 시작은 0 이므로 맨앞에 0추가
             self.precisions[c] = torch.cat((torch.tensor([1]), self.precisions[c])) # y축의 시작은 1 이므로 맨앞에 1 추가
-            print(f"{c} -> {self.recalls[c].shape} {self.precisions[c].shape}")
             self.APs[c] = torch.trapz(self.precisions[c], self.recalls[c]).item() # 현재 클래스에 대해 AP를 계산해줌, trapz(y,x) x에 대한 y의 적분
         
         self.mAP = round(sum(self.APs) / len(self.APs),4)
