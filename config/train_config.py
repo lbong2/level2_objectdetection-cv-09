@@ -1,8 +1,8 @@
 
 
 default_config ={
-    'backbone' : 'mobilenet',  # [mobilenet, resnet50_fpn]
-    'backbone_pretrained_weights' : "/opt/ml/level2_objectdetection-cv-09/pretrained/mobilenet_v2.pth",  # [path or None]
+    'backbone' : 'resnet50_fpn',  # [mobilenet, resnet50_fpn]
+    'backbone_pretrained_weights' : "/opt/ml/level2_objectdetection-cv-09/pretrained/fasterrcnn_resnet50_fpn.pth",  # [path or None]
     # /opt/ml/level2_objectdetection-cv-09/pretrained/mobilenet_v2.pth
     # /opt/ml/level2_objectdetection-cv-09/pretrained/fasterrcnn_resnet50_fpn.pth
     
@@ -49,12 +49,12 @@ default_config ={
 
     'resume' : '',  # pretrained_weights
     'start_epoch' : 0,  # start epoch
-    'num_epochs' : 20,  # train epochs
-    'early_stop' : 5, # early_stop
+    'num_epochs' : 100,  # train epochs
+    'early_stop' : 10, # early_stop
 
     # learning rate parameters
     'optimizer' : 'adam', # ['sgd','adagrad','adam']
-    'lr' : 1e-4,
+    'lr' : 5e-5,
     'momentum' : 0.8,
     'weight_decay' : 0.0005,
     
@@ -68,22 +68,22 @@ default_config ={
     'threshold' : 1e-4, # using reducelronplateau
 
     'batch_size' : 16,
-    'mosaic' : False,
+    'mosaic' : True,
 
     'num_class' : 10 + 1,  # foreground + 1 background
-    'num_workers' : 1,
+    'num_workers' : 8,
 
     'box_loss': 'smoothl1loss', # ['smoothl1loss', 'iou_loss', 'giou_loss', 'diou_loss', 'ciou_loss']
     'cls_loss':'cross_entropy', # ['focal', 'cross_entropy', 'label_smoothing']
     'rpn_box_loss': 'ciou_loss', # ['smoothl1loss', 'iou_loss', 'giou_loss', 'diou_loss', 'ciou_loss']
     'rpn_cls_loss': 'bce', # ['bce']
-    'loss_gain':[1, 1, 1, 10], # ['loss_classifier', 'loss_box_reg', 'loss_objectness', 'loss_rpn_box_reg']
+    'loss_gain':[1, 1, 1, 13], # ['loss_classifier', 'loss_box_reg', 'loss_objectness', 'loss_rpn_box_reg']
 
     # wandb project
-    'wandb' : False,
+    'wandb' : True,
     'project': "Faster_R-CNN",
-    'name': "resnet50_rpn_ciou_loss_10",
-    'notes' : "albumentation test",
+    'name': "resnet50_rpn_ciou_mosaic",
+    'notes' : "mosaic test",
     'entity' : "boost_cv_09",
 
     'data_root_dir' : "/opt/ml/dataset",

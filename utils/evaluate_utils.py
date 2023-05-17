@@ -51,6 +51,7 @@ def evaluate(model, data_loader, device, mAP_list=None):
                     output['boxes'][i][1], 
                     output['boxes'][i][2], 
                     output['boxes'][i][3]] )
+                
         evaluator_time = time.time()
         map_logger.update(pred_boxes,true_boxes)
         evaluator_time = time.time() - evaluator_time

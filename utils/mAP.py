@@ -145,7 +145,7 @@ class mAPLogger(object):
     
     def calculrate(self):
         for c in range(1,self.num_classes):
-            sorted_indices = np.argsort(self.scores[c])[::-1]
+            sorted_indices = torch.from_numpy(np.argsort(self.scores[c])[::-1].copy()).long()
             self.TPs[c] = self.TPs[c][sorted_indices]
             self.FPs[c] = self.FPs[c][sorted_indices]
             TP_cumsum = torch.cumsum(self.TPs[c], dim=0)
