@@ -1,23 +1,28 @@
+from pycocotools.coco import COCO
+from pycocotools.cocoeval import COCOeval
+import numpy as np
+import cv2
 import os
-
-import torch
-#from tensorboardX import SummaryWriter
-import wandb
-
-from config import train_config
-from dataloader.dataset import CustomDataset, split_train_valid, get_all_annotation, get_json_data
-from utils.evaluate_utils import evaluate
-from utils.plot_utils import plot_loss_and_lr, plot_map
-from utils.train_utils import train_one_epoch, create_model
-from optimizers.optims import create_optimizer
-from optimizers.schedulers import create_scheduler
 
 import albumentations as A
 from albumentations.pytorch import ToTensorV2
 
-import matplotlib.pyplot as plt
+import torch
+
+from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
+
+from torch.utils.data import DataLoader
+import pandas as pd
+from tqdm import tqdm
+
+import config 
+import wandb
+from importlib import import_module
+import dataset
+from dataset import CustomDataset, get_split
+from utils import Averager, collate_fn
+from metric import mAPLogger, calculate_map
 import argparse
-import numpy as np
 import random
 
 def seed_everything(seed):
@@ -29,196 +34,150 @@ def seed_everything(seed):
     np.random.seed(seed)
     random.seed(seed)
 
-def main():
-    cfg = train_config.default_config
-    if cfg["wandb"]:
-        wandb.init(
-            entity=cfg['entity'],
-            project=cfg['project'],
-            name=cfg['name'],
-            config=cfg,
-        )
-        cfg = wandb.config
-    cfg = train_config.ChangeConfig(cfg)
-    # wandb config
-    cfg.model_save_dir = os.path.join(cfg.model_save_dir,cfg.project,cfg.name)
-    seed_everything(cfg.seed)
+def get_train_transform():
+    return A.Compose([
+        A.Resize(1024, 1024),
+        A.Flip(p=0.5),
+        A.Rotate(p=0.5, limit=(-45, 45), interpolation=0, border_mode=0, value=(0, 0, 0), mask_value=None, rotate_method='largest_box', crop_border=False),
+        A.OneOf([
+            A.RandomBrightnessContrast(p=1.0, brightness_limit=(-0.2, 0.2), contrast_limit=(-0.2, 0.2), brightness_by_max=True),
+            A.GaussianBlur(p=1.0, blur_limit=(3, 7), sigma_limit=(0.0, 0))
+        ], p=0.5),
+        ToTensorV2(p=1.0)
+    ], bbox_params={'format': 'pascal_voc', 'label_fields': ['labels']})
 
-    device = torch.device(cfg.device)
-    print("Using {} device training.".format(device.type))
-  
-    if not os.path.exists(cfg.model_save_dir):
-        os.makedirs(cfg.model_save_dir)
 
-    data_transform = {
-        "train": A.Compose([
-            A.HorizontalFlip(p=cfg.train_horizon_flip_prob),
-            A.RandomBrightnessContrast(p=0.2),
-            A.ShiftScaleRotate(shift_limit=[-0.1,0.1],scale_limit=[-0.5,0.5]),
-            # A.RandomCrop(1024,1024),
-            # A.Resize(1024,1024),
-            ToTensorV2(),
-        ], bbox_params=A.BboxParams(format='pascal_voc',label_fields=['labels'])),
-        "val": A.Compose([
-            ToTensorV2(),
-            ], bbox_params=A.BboxParams(format='pascal_voc',label_fields=['labels']))
-    }
+def get_valid_transform():
+    return A.Compose([
+        ToTensorV2(p=1.0)
+    ], bbox_params={'format': 'pascal_voc', 'label_fields': ['labels']})
 
-    if not os.path.exists(cfg.data_root_dir):
-        raise FileNotFoundError("dataset root dir not exist!")
-    json_data = get_json_data(cfg.data_root_dir)
+def train_fn(num_epochs, train_data_loader, valid_data_loader, optimizer, model, device, cfg):
+    # best_loss = 1000
+    best_mAP = 0
+    loss_hist = Averager()
+    val_mAP = []
+    val_cls_ap = []
     
-    json_anno = get_all_annotation(json_data)
+    for epoch in range(num_epochs):
+        map_logger = mAPLogger()
+        loss_hist.reset()
+        model.train()
+        for images, targets, image_ids in tqdm(train_data_loader, desc=f'train #{epoch+1}: ', leave=False):
 
-    train_info, val_info = split_train_valid(cfg.data_root_dir, json_data)
+            # gpu 계산을 위해 image.to(device)
+            images = list(image.float().to(device) for image in images)
+            targets = [{k: v.to(device) for k, v in t.items()} for t in targets]
 
-    # load train data set
-    train_data_set = CustomDataset(train_info, json_anno, data_transform['train'])
-    batch_size = cfg.batch_size
-    if cfg.num_workers == False:
-        cfg.num_workers = min([os.cpu_count(), batch_size if batch_size > 1 else 0, 8])
-    print('Using {} dataloader workers'.format(cfg.num_workers))
-    train_data_loader = torch.utils.data.DataLoader(train_data_set,
-                                                    batch_size=batch_size,
-                                                    shuffle=True,
-                                                    num_workers=cfg.num_workers,
-                                                    collate_fn=train_data_set.collate_fn)
+            # calculate loss
+            loss_dict = model(images, targets)
 
-    # load validation data set
-    val_data_set = CustomDataset(val_info, json_anno, data_transform['val'])
-    val_data_set_loader = torch.utils.data.DataLoader(val_data_set,
-                                                      batch_size=batch_size,
-                                                      shuffle=False,
-                                                      num_workers=cfg.num_workers,
-                                                      collate_fn=train_data_set.collate_fn)
+            losses = sum(loss for loss in loss_dict.values())
+            loss_value = losses.item()
 
-    # create model num_classes equal background + 80 classes
-    model = create_model(num_classes=cfg.num_class,cfg=cfg)
+            loss_hist.send(loss_value)
 
+            # backward
+            optimizer.zero_grad()
+            losses.backward()
+            optimizer.step()
+
+        model.eval()
+        with torch.no_grad():
+            for images, targets, image_ids in tqdm(valid_data_loader, desc=f'validate #{epoch+1}: ', leave=False):    
+                images = list(image.float().to(device) for image in images)
+                targets = [{k: v.to(device) for k, v in t.items()} for t in targets]
+                # target = {'boxes': boxes, 'labels': labels, 'image_id': torch.tensor([index]), 'area': areas}
+                outputs = model(images, targets)
+                # outputs: [{boxes:[[]], labels:[], scores: []}, ...] 배치 개수 만큼 dict 존재 
+                
+                # [train_idx(image_num), class_pred, prob_score, x1, y1, x2, y2]
+                pred_boxes = []
+                true_boxes = []
+                for i, target in enumerate(targets):
+                    # [[train_idx(image_num), class_pred, prob_score, x1, y1, x2, y2], [train_idx(image_num), class_pred, prob_score, x1, y1, x2, y2], ...]
+                    
+                    pred_boxes.extend([[target['image_id'], label, score, *box] 
+                                    for box, label, score in zip(outputs[i]['boxes'], outputs[i]['labels'], outputs[i]['scores'])])                
+                    true_boxes.extend([[target['image_id'], label, score, *box] 
+                                    for box, label, score in zip(target['boxes'], target['labels'], target['area'])]) 
+  
+                map_logger.update(pred_boxes, true_boxes)
+                # mAP, aps = calculate_map(tensor_pred_boxes, tensor_true_boxes)
+            mAP = map_logger.get_mAP()
+
+
+        if cfg.project:
+            wandb.log({
+                "val_mAP": mAP,
+                "train_loss": loss_hist.value
+            })
+        print(f"Epoch #{epoch+1} train loss: {loss_hist.value} mAP: {mAP}")
+        if mAP > best_mAP:
+            save_path = f'./{cfg.model_save_dir}/{cfg.name}'
+            
+            if not os.path.exists(save_path):
+                os.makedirs(save_path)
+            best_mAP = mAP
+            torch.save(model.state_dict(), os.path.join(save_path, f"{cfg.num_epochs}_{best_mAP}_best_model.pth"))
+            
+    del model
+    torch.cuda.empty_cache()
+    wandb.log({"best_mAP": best_mAP})
+    wandb.config.update(vars(cfg))
+    wandb.finish()
+
+def main(cfg):
+    # 데이터셋 불러오기
+    annotation = '../dataset/train.json' # annotation 경로
+    data_dir = '../dataset' # data_dir 경로
+    get_split(annotation)
+    train_dataset = CustomDataset("../dataset/temp_train.json", data_dir, get_train_transform()) 
+    val_dataset = CustomDataset("../dataset/temp_val.json", data_dir, get_valid_transform())
+
+    train_data_loader = DataLoader(
+        train_dataset,
+        batch_size=cfg.batch_size,
+        shuffle=True,
+        collate_fn=collate_fn
+    )
+    valid_data_loader = DataLoader(
+        val_dataset,
+        batch_size=cfg.batch_size,
+        shuffle=False,
+        collate_fn=collate_fn
+    )
+    device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
+    print(device)
+    
+    # torchvision model 불러오기
+    model_module = getattr(import_module("torchvision.models.detection"), cfg.model)
+    weights = getattr(import_module("torchvision.models.detection"), "FasterRCNN_ResNet50_FPN_V2_Weights").DEFAULT
+    model = model_module(weights=weights, **cfg.rcnn_params)
+    num_classes = 11 # class 개수= 10 + background
+
+    # get number of input features for the classifier
+    in_features = model.roi_heads.box_predictor.cls_score.in_features
+    model.roi_heads.box_predictor = FastRCNNPredictor(in_features, num_classes)
     model.to(device)
 
-    # define optimizer
-    optimizer = create_optimizer(
-            cfg.optimizer, 
-            filter(lambda p: p.requires_grad, model.parameters()), 
-            cfg
-            )
-        
-    lr_scheduler = create_scheduler(cfg.scheduler,optimizer,cfg)
-
-    # train from pretrained weights
-    if cfg.resume != "":
-        checkpoint = torch.load(cfg.resume)
-        model.load_state_dict(checkpoint['model'])
-        optimizer.load_state_dict(checkpoint['optimizer'])
-        lr_scheduler.load_state_dict(checkpoint['lr_scheduler'])
-        cfg.start_epoch = checkpoint['epoch'] + 1
-        print("the training process from epoch{}...".format(cfg.start_epoch))
-
-    train_loss = []
-    learning_rate = []
-    train_mAP_list = []
-    val_mAP = []
-    early_stop_count = 0
-    best_mAP = 0
-    for epoch in range(cfg.start_epoch, cfg.num_epochs):
-        loss_dict, total_loss = train_one_epoch(model, optimizer, train_data_loader,
-                                                device, epoch, train_loss=train_loss, train_lr=learning_rate,
-                                                print_freq=50, warmup=False, loss_gain=cfg.loss_gain)
-
-
-        print("------>Starting training data valid")
-        train_aps, train_mAP = evaluate(model, train_data_loader, device=device, mAP_list=train_mAP_list)
-
-        print("------>Starting validation data valid")
-        val_aps, mAP = evaluate(model, val_data_set_loader, device=device, mAP_list=val_mAP)
-        print('training mAp is {}'.format(train_mAP))
-        print('validation mAp is {}'.format(mAP))
-        print('best mAp is {}'.format(best_mAP))
-
-        if cfg.scheduler == 'reducelronplateau':
-            lr_scheduler.step(mAP)
-        else:
-            lr_scheduler.step()
-
-
-        # wandb log - by kyungbong
-        if cfg.wandb:
-            # plot metric 및 loss
-            metric_board_info = {
-                'metric/train_mAP': train_mAP,
-                'metric/val_mAP': mAP,
-            }
-
-            train_board_info = {'train/lr': optimizer.param_groups[0]['lr']}
-            for k, v in loss_dict.items():
-                train_board_info["train/"+k] = v.item()
-            train_board_info['train/total loss'] = total_loss.item()
-            train_board_info['train/epoch'] = epoch
-
-            wandb.log(train_board_info, step= epoch)
-            wandb.log(metric_board_info, step=epoch)
-
-            train_table = wandb.Table(columns=["ap","class"],
-                                data =[[x,y] for x,y in zip(train_aps,CustomDataset.classes)])
-            val_table = wandb.Table(columns=["ap","class"],
-                                data = [[x,y] for x,y in zip(val_aps,CustomDataset.classes)])
-            wandb.log({
-                'hist/trian_APs': wandb.plot.histogram(train_table, value='ap', title='APs by Class'),
-                'hist/val_APs': wandb.plot.histogram(val_table, value='ap', title='APs by Class')
-                }, step = epoch)
-            # wandb.log({'val_ap for class': wandb.plot.histogram(val_table)})
-
-
-        if mAP > best_mAP:
-            early_stop_count = 0
-            best_mAP = mAP
-            # save weights
-            save_files = {
-                'model': model.state_dict(),
-                'optimizer': optimizer.state_dict(),
-                'lr_scheduler': lr_scheduler.state_dict(),
-                'epoch': epoch}
-            if not os.path.exists(cfg.model_save_dir):
-                os.makedirs(cfg.model_save_dir)
-            
-            torch.save(save_files,
-                       os.path.join(cfg.model_save_dir, "best.pth"))
-            print(f"save {cfg.model_save_dir}/best.pth")
-        else:
-            early_stop_count +=1
-            if early_stop_count > cfg.early_stop:
-                print("Early Stopping")
-                break
-    # plot loss and lr curve
+    params = [p for p in model.parameters() if p.requires_grad]
+    opt_module = getattr(import_module("torch.optim"), cfg.optimizer)
+    optimizer = opt_module(params, lr=cfg.lr, weight_decay=cfg.weight_decay, momentum=0.9)
     
-    if len(train_loss) != 0 and len(learning_rate) != 0:
-        plot_loss_and_lr(train_loss, learning_rate, cfg.model_save_dir)
+    # training
+    train_fn(cfg.num_epochs, train_data_loader, valid_data_loader, optimizer, model, device, cfg)
+
+if __name__ == '__main__':
     
-    # plot mAP curve
-    if len(val_mAP) != 0:
-        plot_map(val_mAP, cfg.model_save_dir)
-        
-    # wandb plot image log - by kyungbong
-    if cfg.wandb:
-        wandb.log({
-            "mAPCurve": wandb.Image(plt.imread(os.path.join(cfg.model_save_dir, "mAP.png"))),
-            "loss_lrCurve": wandb.Image(plt.imread(os.path.join(cfg.model_save_dir, "loss_and_lr.png"))),
-        })
-        wandb.finish()     
+    seed_everything(42)
+    cfg = config.read_config()
+    parser = argparse.Namespace(**cfg)
 
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--sweep",action='store_true',help="using wandb sweep")
-    args = parser.parse_args()
-
-    version = torch.version.__version__[:5]
-    print('torch version is {}'.format(version))
-
-    if args.sweep:
-        sweep_id = wandb.sweep(
-            sweep = train_config.sweep_config,
+    if parser.project:
+        wandb.init(
+            config=cfg,
+            entity="boost_cv_09"
         )
-        wandb.agent(sweep_id, function=main)
-    else:
-        main()
+
+    main(parser)

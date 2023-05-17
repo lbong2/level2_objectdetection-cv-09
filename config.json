@@ -1,0 +1,50 @@
+{
+    "model":"fasterrcnn_resnet50_fpn_v2",
+
+    "anchor_size": [64, 128, 256],
+    "anchor_ratio": [0.5, 1, 2.0],
+
+    "num_epochs": 30,
+
+    "lr": 0.001,
+    "optimizer": "SGD",
+    "weight_decay": 0.0005,
+
+    "lr_gamma": 0.33,
+    "lr_dec_step_size": 100,
+
+    "batch_size": 6,
+
+    "data_root_dir": "/opt/ml/dataset",
+    "model_save_dir": "save",
+
+    "project": "Faster_R-CNN_new",
+    "name": "long_epoch_test",
+    "rcnn_params":{
+
+        "min_size": 800,
+        "max_size": 1333,
+        "image_mean": [0.485, 0.456, 0.406],
+        "image_std": [0.229, 0.224, 0.225],
+
+        "rpn_pre_nms_top_n_train": 2000,
+        "rpn_pre_nms_top_n_test": 1000,
+        "rpn_post_nms_top_n_train": 2000,
+        "rpn_post_nms_top_n_test": 1000,
+        "rpn_nms_thresh": 0.7,
+        "rpn_fg_iou_thresh": 0.7,
+        "rpn_bg_iou_thresh": 0.3,
+        "rpn_batch_size_per_image": 256,
+        "rpn_positive_fraction": 0.5,
+        "rpn_score_thresh": 0.0,
+
+
+        "box_score_thresh":0.3,
+        "box_nms_thresh":0.5,
+        "box_detections_per_img":100,
+        "box_fg_iou_thresh":0.5,
+        "box_bg_iou_thresh":0.5,
+        "box_batch_size_per_image":512,
+        "box_positive_fraction":0.25
+    }
+}
