@@ -190,7 +190,7 @@ class CustomDataset(Dataset):
         image_ids4 = []
         areas4 = []
         iscrowds4 = []
-        mosaic_border = [random.uniform(0.2, 0.8), random.uniform(0.2, 0.8)]
+        mosaic_border = [random.uniform(0., 1.), random.uniform(0., 1.)]
         # center point
         yc, xc = (int(1024*x) for x in mosaic_border)  # mosaic center x, y # 81 172
         # random index, 4 images

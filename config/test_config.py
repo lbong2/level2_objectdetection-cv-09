@@ -1,6 +1,6 @@
 class Config:
-    name = "backbone_(manipulated variable)"
-    model_weights = f"save/{name}"
+    name = "resnet50_rpn_ciou_mosaic"
+    model_weights = f"/opt/ml/level2_objectdetection-cv-09/save/Faster_R-CNN/{name}"
     image_path = "/opt/ml/dataset/test"
     gpu_id = '0'
     num_classes = 10 + 1
