@@ -3,11 +3,13 @@
 default_config ={
     'backbone' : 'resnet50_fpn',  # [mobilenet, resnet50_fpn]
     'backbone_pretrained_weights' : "/opt/ml/level2_objectdetection-cv-09/pretrained/fasterrcnn_resnet50_fpn.pth",  # [path or None]
-
+    # /opt/ml/level2_objectdetection-cv-09/pretrained/mobilenet_v2.pth
+    # /opt/ml/level2_objectdetection-cv-09/pretrained/fasterrcnn_resnet50_fpn.pth
+    
     # data transform parameter
     'train_horizon_flip_prob' : 0.5,  # data horizon flip probility in train transform
     'min_size' : 800,
-    'max_size' : 1024,
+    'max_size' : 1333,
     'image_mean' : [0.485, 0.456, 0.406],
     'image_std' : [0.229, 0.224, 0.225],
 
@@ -33,7 +35,7 @@ default_config ={
     'rpn_positive_fraction' : 0.5,
 
     # remove low threshold target
-    'box_score_thresh' : 0.25,
+    'box_score_thresh' : 0.01,
     'box_nms_thresh' : 0.5,
     'box_detections_per_img' : 100,
     'box_fg_iou_thresh' : 0.5,
@@ -47,17 +49,17 @@ default_config ={
 
     'resume' : '',  # pretrained_weights
     'start_epoch' : 0,  # start epoch
-    'num_epochs' : 10,  # train epochs
-    'early_stop' : 5, # early_stop
+    'num_epochs' : 100,  # train epochs
+    'early_stop' : 10, # early_stop
 
     # learning rate parameters
-    'optimizer' : 'adam', # ['sgd','adagrad','adam']
-    'lr' : 1e-4,
-    'momentum' : 0.8,
+    'optimizer' : 'sgd', # ['sgd','adagrad','adam']
+    'lr' : 1e-3,
+    'momentum' : 0.9,
     'weight_decay' : 0.0005,
     
     # learning rate schedule
-    'scheduler' : 'reducelronplateau', # ['steplr', 'lambdalr', 'exponentiallr', 'cosineannealinglr','cycliclr','reducelronplateau']
+    'scheduler' : 'cosineannealinglr', # ['steplr', 'lambdalr', 'exponentiallr', 'cosineannealinglr','cycliclr','reducelronplateau']
     'lr_gamma' : 0.33, # using steplr, exponentialLR, reducelronplateau
     'lr_decay_step' : 20, # using steplr
     'tmax' : 5, # using cosineannealinglr
@@ -66,21 +68,22 @@ default_config ={
     'threshold' : 1e-4, # using reducelronplateau
 
     'batch_size' : 16,
+    'mosaic' : True,
 
     'num_class' : 10 + 1,  # foreground + 1 background
-    'num_workers' : 1,
+    'num_workers' : 8,
 
     'box_loss': 'smoothl1loss', # ['smoothl1loss', 'iou_loss', 'giou_loss', 'diou_loss', 'ciou_loss']
-    'cls_loss':'cross_entropy', # ['focal', 'cross_entropy', 'label_smoothing']
-    'rpn_box_loss': 'ciou_loss', # ['smoothl1loss', 'iou_loss', 'giou_loss', 'diou_loss', 'ciou_loss']
+    'cls_loss':'label_smoothing', # ['focal', 'cross_entropy', 'label_smoothing']
+    'rpn_box_loss': 'smoothl1loss', # ['smoothl1loss', 'iou_loss', 'giou_loss', 'diou_loss', 'ciou_loss']
     'rpn_cls_loss': 'bce', # ['bce']
     'loss_gain':[1, 1, 1, 1], # ['loss_classifier', 'loss_box_reg', 'loss_objectness', 'loss_rpn_box_reg']
 
     # wandb project
-    'wandb' : False,
+    'wandb' : True,
     'project': "Faster_R-CNN",
-    'name': "resnet50_rpn_ciou_loss",
-    'notes' : "albumentation test",
+    'name': "resnet50_rpn_diou_mosaic_labelsmooth",
+    'notes' : "mosaic test",
     'entity' : "boost_cv_09",
 
     'data_root_dir' : "/opt/ml/dataset",
@@ -114,4 +117,4 @@ class ChangeConfig(object):
     def __init__(self,cfg_dict):
         self.__dict__.update(cfg_dict)
 
-
+train_cfg = ChangeConfig(default_config)

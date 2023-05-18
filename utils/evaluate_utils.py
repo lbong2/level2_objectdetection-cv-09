@@ -28,14 +28,14 @@ def evaluate(model, data_loader, device, mAP_list=None):
 
         pred_boxes = []
         true_boxes = []
-        for target, output in zip(targets, outputs):
-            img_id = target['image_id'].item()
+        for id, (target, output) in enumerate(zip(targets, outputs)):
+            image_idx = id
             # output : {"boxes": [], "labels": [], "scores": [] }
             # target : {"boxes": [], "labels": [], "image_id": [], "area": [], "iscrowd": []}
 
             for i in range(len(target['labels'])):
                 true_boxes.append([
-                    img_id, 
+                    image_idx, 
                     target['labels'][i], 
                     target['area'][i], 
                     target['boxes'][i][0], 
@@ -44,13 +44,14 @@ def evaluate(model, data_loader, device, mAP_list=None):
                     target['boxes'][i][3]] )
             for i in range(len(output['labels'])):
                 pred_boxes.append([
-                    img_id, 
+                    image_idx, 
                     output['labels'][i], 
                     output['scores'][i], 
                     output['boxes'][i][0], 
                     output['boxes'][i][1], 
                     output['boxes'][i][2], 
                     output['boxes'][i][3]] )
+                
         evaluator_time = time.time()
         map_logger.update(pred_boxes,true_boxes)
         evaluator_time = time.time() - evaluator_time

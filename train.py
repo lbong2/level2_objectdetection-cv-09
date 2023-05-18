@@ -53,10 +53,14 @@ def main():
     data_transform = {
         "train": A.Compose([
             A.HorizontalFlip(p=cfg.train_horizon_flip_prob),
-            A.RandomBrightnessContrast(p=0.2),
-            A.ShiftScaleRotate(shift_limit=[-0.1,0.1],scale_limit=[-0.5,0.5]),
+            A.RandomBrightnessContrast(p=0.2,brightness_limit=0.5, contrast_limit=0.5),
+            A.ShiftScaleRotate(scale_limit=[-0.3,0.3]),
             # A.RandomCrop(1024,1024),
             # A.Resize(1024,1024),
+            # A.OneOf([
+            #     A.CLAHE(p=0.3),
+            #     A.Blur(blur_limit=(30, 40), p=0.5)
+            # ], p=0.3),
             ToTensorV2(),
         ], bbox_params=A.BboxParams(format='pascal_voc',label_fields=['labels'])),
         "val": A.Compose([
@@ -73,7 +77,7 @@ def main():
     train_info, val_info = split_train_valid(cfg.data_root_dir, json_data)
 
     # load train data set
-    train_data_set = CustomDataset(train_info, json_anno, data_transform['train'])
+    train_data_set = CustomDataset(train_info, json_anno, data_transform['train'], mosaic=cfg.mosaic)
     batch_size = cfg.batch_size
     if cfg.num_workers == False:
         cfg.num_workers = min([os.cpu_count(), batch_size if batch_size > 1 else 0, 8])
