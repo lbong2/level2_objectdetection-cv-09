@@ -1,8 +1,8 @@
-torch~=1.5.1
-torchvision~=0.6.1
-numpy~=1.15.4
-Pillow~=6.1.0
-pycocotools~=2.0
+torch~=1.7.1
+torchvision~=0.8.2
+numpy~=1.21.5
+Pillow~=9.3.0
+pycocotools~=2.0.6
 matplotlib~=3.0.2
-tensorboardX~=2.0
-wandb
+wandb~=0.15.1
+ensemble_boxes~=1.0.9

@@ -4,6 +4,7 @@ from torch.nn import functional as F
 
 import utils.boxes_utils as box_op
 from utils.det_utils import *
+from utils.losses import create_criterion,SmoothL1Loss
 
 
 class RPNHead(nn.Module):
@@ -65,7 +66,7 @@ class RegionProposalNetwork(torch.nn.Module):
      """
 
     def __init__(self, anchor_generator, head, fg_iou_thresh, bg_iou_thresh, batch_size_per_image, positive_fraction,
-                 pre_nms_top_n, post_nms_top_n, nms_thresh):
+                 pre_nms_top_n, post_nms_top_n, nms_thresh,box_loss, cls_loss,device):
 
         super(RegionProposalNetwork, self).__init__()
         self.anchor_generator = anchor_generator
@@ -91,6 +92,9 @@ class RegionProposalNetwork(torch.nn.Module):
         self._post_nms_top_n = post_nms_top_n
         self.nms_thresh = nms_thresh
         self.min_size = 1e-3
+
+        self.box_criterion = create_criterion(box_loss).to(device)
+        self.class_criterion = create_criterion(cls_loss).to(device)
 
     def pre_nms_top_n(self):
         if self.training:
@@ -245,11 +249,12 @@ class RegionProposalNetwork(torch.nn.Module):
         regression_targets = torch.cat(regression_targets, dim=0)
 
         # bbox regression loss
-        box_loss = smooth_l1_loss(pred_bbox_deltas[sampled_pos_inds], regression_targets[sampled_pos_inds],
-                                  beta=1 / 9, size_average=False, ) / (sampled_inds.numel())
+        box_loss = self.box_criterion(pred_bbox_deltas[sampled_pos_inds], regression_targets[sampled_pos_inds])
+        if isinstance(self.box_criterion,SmoothL1Loss):
+            box_loss = box_loss / sampled_inds.numel()
 
         # classification loss
-        objectness_loss = F.binary_cross_entropy_with_logits(objectness[sampled_inds], labels[sampled_inds])
+        objectness_loss = self.class_criterion(objectness[sampled_inds], labels[sampled_inds])
 
         return objectness_loss, box_loss
 

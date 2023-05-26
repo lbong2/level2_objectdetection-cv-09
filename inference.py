@@ -17,6 +17,7 @@ from tqdm import tqdm
 
 from utils.train_utils import create_model
 from config.test_config import test_cfg
+from config.train_config import train_cfg
 
 class CustomDataset(Dataset):
     '''
@@ -78,7 +79,7 @@ def main():
  
     test_data_loader = DataLoader(
         test_dataset,
-        batch_size=8,
+        batch_size=16,
         shuffle=False,
         num_workers=4
     )
@@ -86,10 +87,10 @@ def main():
     print(device)
     
     # torchvision model 불러오기
-    model = create_model(num_classes=test_cfg.num_classes)
+    model = create_model(num_classes=test_cfg.num_classes,cfg=train_cfg)
     model.cuda()
 
-    weights = os.path.join(test_cfg.model_weights, [file for file in os.listdir(test_cfg.model_weights) if file.endswith(".pth")][0])
+    weights = os.path.join(test_cfg.model_weights, "best.pth")
     checkpoint = torch.load(weights, map_location='cpu')
     model.load_state_dict(checkpoint['model'])
     
@@ -119,6 +120,7 @@ def main():
     submission['PredictionString'] = prediction_strings
     submission['image_id'] = file_names
     submission.to_csv(f'{model_save_dir}/submission.csv', index=None)
+    print(f"create {model_save_dir}/submission.csv")
     print(submission.head())
 
 if __name__ == "__main__":

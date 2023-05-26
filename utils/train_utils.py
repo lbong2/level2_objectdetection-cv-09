@@ -9,7 +9,6 @@ from torchvision import ops
 
 from backbone.mobilenet import MobileNetV2
 from backbone.resnet50_fpn_model import *
-from config.train_config import cfg
 from utils.anchor_utils import AnchorsGenerator
 from utils.faster_rcnn_utils import FasterRCNN, FastRCNNPredictor
 import os
@@ -18,12 +17,12 @@ os.environ['MASTER_ADDR'] = '127.0.0.1'
 os.environ['MASTER_PORT'] = '30003'
 dist.init_process_group(backend='nccl', rank=0, world_size=1)
 
-def create_model(num_classes):
+def create_model(num_classes,cfg):
     global backbone, model
     backbone_network = cfg.backbone
 
     anchor_sizes = tuple((f,) for f in cfg.anchor_size)
-    aspect_ratios = tuple((f,) for f in cfg.anchor_ratio) * len(anchor_sizes)
+    aspect_ratios = tuple([tuple(cfg.anchor_ratio)]* len(anchor_sizes))
     anchor_generator = AnchorsGenerator(sizes=anchor_sizes,
                                         aspect_ratios=aspect_ratios)
 
@@ -61,8 +60,9 @@ def create_model(num_classes):
                            box_bg_iou_thresh=cfg.box_bg_iou_thresh,
                            box_batch_size_per_image=cfg.box_batch_size_per_image,
                            box_positive_fraction=cfg.box_positive_fraction,
-                           bbox_reg_weights=cfg.bbox_reg_weights
-                           )
+                           bbox_reg_weights=cfg.bbox_reg_weights,
+                           box_loss=cfg.box_loss, cls_loss=cfg.cls_loss, 
+                           rpn_box_loss= cfg.rpn_box_loss, rpn_cls_loss= cfg.rpn_cls_loss, device=cfg.device)
     elif backbone_network == 'resnet50_fpn':
         backbone = resnet50_fpn_backbone()
 
@@ -70,7 +70,7 @@ def create_model(num_classes):
             featmap_names=['0', '1', '2', '3'],
             output_size=cfg.roi_out_size,
             sampling_ratio=cfg.roi_sample_rate)
-        model = FasterRCNN(backbone=backbone, num_classes=num_classes,
+        model = FasterRCNN(backbone=backbone, num_classes=91,
                            # transform parameters
                            min_size=cfg.min_size, max_size=cfg.max_size,
                            image_mean=cfg.image_mean, image_std=cfg.image_std,
@@ -96,14 +96,16 @@ def create_model(num_classes):
                            box_bg_iou_thresh=cfg.box_bg_iou_thresh,
                            box_batch_size_per_image=cfg.box_batch_size_per_image,
                            box_positive_fraction=cfg.box_positive_fraction,
-                           bbox_reg_weights=cfg.bbox_reg_weights
+                           bbox_reg_weights=cfg.bbox_reg_weights,
+                           box_loss=cfg.box_loss, cls_loss=cfg.cls_loss, 
+                           rpn_box_loss= cfg.rpn_box_loss, rpn_cls_loss= cfg.rpn_cls_loss, device=cfg.device
                            )
 
-        # weights_dict = torch.load(cfg.pretrained_weights)
-        # missing_keys, unexpected_keys = model.load_state_dict(weights_dict, strict=False)
-        # if len(missing_keys) != 0 or len(unexpected_keys) != 0:
-        #     print("missing_keys: ", missing_keys)
-        #     print("unexpected_keys: ", unexpected_keys)
+        weights_dict = torch.load(cfg.backbone_pretrained_weights)
+        missing_keys, unexpected_keys = model.load_state_dict(weights_dict, strict=False)
+        if len(missing_keys) != 0 or len(unexpected_keys) != 0:
+            print("missing_keys: ", missing_keys)
+            print("unexpected_keys: ", unexpected_keys)
 
         in_features = model.roi_heads.box_predictor.cls_score.in_features
         model.roi_heads.box_predictor = FastRCNNPredictor(in_features, num_classes)
@@ -358,7 +360,7 @@ class MetricLogger(object):
 
 
 def train_one_epoch(model, optimizer, data_loader, device, epoch, print_freq,
-                    train_loss=None, train_lr=None, warmup=False):
+                    train_loss=None, train_lr=None, warmup=False,loss_gain=[1,1,1,1]):
     global loss_dict, losses
     model.train()
 
@@ -381,7 +383,7 @@ def train_one_epoch(model, optimizer, data_loader, device, epoch, print_freq,
         with torch.cuda.amp.autocast():
             # Casts operations to mixed precision 
             loss_dict = model(images, targets)
-            losses = sum(loss for loss in loss_dict.values())
+            losses = sum(a*loss for a, loss in zip(loss_gain,loss_dict.values()))
 
         # reduce losses over all GPUs for logging purpose
         loss_dict_reduced = reduce_dict(loss_dict)

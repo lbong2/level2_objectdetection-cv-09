@@ -1,7 +1,7 @@
 import time
 import torch
 from utils.train_utils import MetricLogger
-from utils.coco_utils import get_coco_api_from_dataset, CocoEvaluator
+from utils.mAP import mAPLogger
 
 
 @torch.no_grad()
@@ -11,11 +11,8 @@ def evaluate(model, data_loader, device, mAP_list=None):
     cpu_device = torch.device("cpu")
     model.eval()
     metric_logger = MetricLogger(delimiter="  ")
+    map_logger = mAPLogger(iou_threshold=0.5, num_classes = 11)
     header = "Test: "
-
-    coco = get_coco_api_from_dataset(data_loader.dataset)
-    iou_types = ["bbox"]
-    coco_evaluator = CocoEvaluator(coco, iou_types)
 
     for image, targets in metric_logger.log_every(data_loader, 100, header):
         image = list(img.to(device) for img in image)
@@ -25,32 +22,49 @@ def evaluate(model, data_loader, device, mAP_list=None):
 
         model_time = time.time()
         outputs = model(image)
-
+        
         outputs = [{k: v.to(cpu_device) for k, v in t.items()} for t in outputs]
         model_time = time.time() - model_time
 
-        res = {target["image_id"].item(): output for target, output in zip(targets, outputs)}
+        pred_boxes = []
+        true_boxes = []
+        for id, (target, output) in enumerate(zip(targets, outputs)):
+            image_idx = id
+            # output : {"boxes": [], "labels": [], "scores": [] }
+            # target : {"boxes": [], "labels": [], "image_id": [], "area": [], "iscrowd": []}
 
+            for i in range(len(target['labels'])):
+                true_boxes.append([
+                    image_idx, 
+                    target['labels'][i], 
+                    target['area'][i], 
+                    target['boxes'][i][0], 
+                    target['boxes'][i][1], 
+                    target['boxes'][i][2], 
+                    target['boxes'][i][3]] )
+            for i in range(len(output['labels'])):
+                pred_boxes.append([
+                    image_idx, 
+                    output['labels'][i], 
+                    output['scores'][i], 
+                    output['boxes'][i][0], 
+                    output['boxes'][i][1], 
+                    output['boxes'][i][2], 
+                    output['boxes'][i][3]] )
+                
         evaluator_time = time.time()
-        coco_evaluator.update(res)
+        map_logger.update(pred_boxes,true_boxes)
         evaluator_time = time.time() - evaluator_time
+
         metric_logger.update(model_time=model_time, evaluator_time=evaluator_time)
 
     # gather the stats from all processes
     metric_logger.synchronize_between_processes()
+    map_logger.calculrate()
     print("Averaged stats:", metric_logger)
-    coco_evaluator.synchronize_between_processes()
-
-    # accumulate predictions from all images
-    coco_evaluator.accumulate()
-    coco_evaluator.summarize()
     torch.set_num_threads(n_threads)
-
-    print_txt = coco_evaluator.coco_eval[iou_types[0]].stats
-    coco_mAP = print_txt[0]
-    voc_mAP = print_txt[1]
     if isinstance(mAP_list, list):
-        mAP_list.append(voc_mAP)
+        mAP_list.append(map_logger.get_mAP())
 
-    return coco_evaluator, voc_mAP
+    return map_logger.get_ap_list(), map_logger.get_mAP()
 
